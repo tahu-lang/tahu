@@ -1,0 +1,10 @@
+[package]
+name = "tahuc"
+version = "0.1.0"
+
+[dependencies]
+tahuc_driver = { path = "../tahuc_driver" }
+
+[[bin]]
+name = "tahuc"
+path = "src/main.rs"
