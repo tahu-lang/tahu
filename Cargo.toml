@@ -1,6 +1,13 @@
-[package]
+[workspace]
+resolver = "2"
+members = [
+    "compiler/tahuc",
+]
+
+[workspace.package]
+authors = ["lutfisobri <lutfisobri@gmail.com>"]
 name = "tahu"
 version = "0.1.0"
 edition = "2024"
-
-[dependencies]
+readme = "README.md"
+repository = "https://github.com/tahu-lang/tahu"
