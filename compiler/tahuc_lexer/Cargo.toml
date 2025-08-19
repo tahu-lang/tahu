@@ -1,0 +1,7 @@
+[package]
+name = "tahuc_lexer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tahuc_span = { path = "../tahuc_span" }
