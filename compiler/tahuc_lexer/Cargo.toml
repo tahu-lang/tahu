@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 tahuc_span = { path = "../tahuc_span" }
+tahuc_diagnostics = { path = "../tahuc_diagnostics" }
