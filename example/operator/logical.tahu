@@ -1,0 +1,3 @@
+fn main() {
+    val result = true && false || true
+}
