@@ -1,0 +1,7 @@
+fn main() {
+    val and_result = 5 & 3
+    val or_result = 5 | 3
+    val xor_result = 5 ^ 3
+    val left_shift = 5 << 1
+    val right_shift = 5 >> 1
+}
