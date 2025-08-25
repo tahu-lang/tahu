@@ -1,0 +1,322 @@
+use tahuc_ast::{
+    nodes::{
+        ast::AstNode,
+        declarations::{Declaration, Paramater, Visibility},
+        expressions::ExpressionKind,
+        statements::{Block},
+    }, AstBuilder, Module, Type
+};
+use tahuc_diagnostics::reporter::DiagnosticReporter;
+use tahuc_lexer::{
+    token::{Token, TokenKind}, LexerResult
+};
+use tahuc_span::{FileId, Span};
+
+use crate::error::ParserError;
+
+mod error;
+mod expr;
+mod stmt;
+mod declaration;
+mod shared;
+
+#[derive(Debug)]
+pub struct Parser<'a> {
+    file_id: FileId,
+    lexer: LexerResult,
+    builder: AstBuilder,
+    tokens: Vec<Token>,
+    position: usize,
+    reporter: &'a mut DiagnosticReporter,
+}
+
+#[derive(Debug)]
+pub struct ParserResult {
+    pub module: Module,
+    pub has_errors: bool,
+}
+
+impl<'a> Parser<'a> {
+    pub fn new(file_id: FileId, lexer: LexerResult, reporter: &'a mut DiagnosticReporter) -> Self {
+        Parser::with_builder(file_id, lexer, AstBuilder::new(), reporter)
+    }
+
+    pub fn with_builder(
+        file_id: FileId,
+        lexer: LexerResult,
+        builder: AstBuilder,
+        reporter: &'a mut DiagnosticReporter,
+    ) -> Self {
+        Self {
+            file_id,
+            lexer: lexer.clone(),
+            builder,
+            tokens: lexer.tokens,
+            position: 0,
+            reporter,
+        }
+    }
+
+    pub fn parse(&mut self) -> ParserResult {
+        let mut programs: Vec<Declaration> = Vec::new();
+        let mut has_errors = false;
+
+        while !self.is_at_end() {
+            if self.check(TokenKind::Newline) {
+                self.advance();
+                continue;
+            }
+
+            match self.declaration(Visibility::Private) {
+                Ok(program) => programs.push(program),
+                Err(error) => {
+                    let dianostic = error.to_diagnostic();
+                    self.reporter.report(dianostic);
+                    has_errors = true;
+                    self.synchronize();
+                }
+            }
+        }
+
+        ParserResult {
+            module: Module {
+                file: self.file_id,
+                declaration: programs,
+            },
+            has_errors: has_errors || self.lexer.has_errors,
+        }
+    }
+
+    fn declaration(&mut self, visibility: Visibility) -> Result<Declaration, ParserError> {
+        match self.peek().kind {
+            TokenKind::Class => self.class_declaration(visibility),
+            TokenKind::Fn => {
+                let func = self.function_declaration(visibility)?;
+                Ok(self.builder.fn_declaration(func.span, self.file_id, func))
+            }
+            TokenKind::Var | TokenKind::Val => {
+                let variable = self.variable_declaration(visibility)?;
+                Ok(self.builder.variable_declaration(variable.span, self.file_id, variable))
+            },
+
+            TokenKind::Pub => {
+                self.advance();
+                self.declaration(Visibility::Public)
+            },
+            TokenKind::Priv => {
+                self.advance();
+                self.declaration(Visibility::Private)
+            },
+            TokenKind::Prot => {
+                self.advance();
+                self.declaration(Visibility::Protected)
+            }
+            _ => {
+                let token = self.peek().clone();
+                self.synchronize();
+                Err(ParserError::UnexpectedTopLevel {
+                    found: token.lexeme,
+                    span: token.span,
+                })
+            }
+        }
+    }
+
+    // fn variable(&mut self, visibility: Visibility) -> Result<Declaration, ParserError> {
+    //     let variable = self.parse_variable(visibility)?;
+
+    //     Ok(self.builder.variable_declaration(variable.span, self.file_id, variable))
+    // }
+
+    fn parse_paramaters(&mut self) -> Result<Paramater, ParserError> {
+        let start_span = self.current_token().clone();
+        let name = self
+            .consume(TokenKind::Identifier, "Expected paramater name")?
+            .clone();
+
+        let mut r#type = Type::Any;
+
+        if self.check(TokenKind::Colon) {
+            self.advance();
+
+            r#type = self.parse_type()?;
+        }
+
+        let mut default: Option<AstNode<ExpressionKind>> = None;
+
+        if self.check(TokenKind::Assign) {
+            self.advance();
+            let value: AstNode<ExpressionKind> = self.expression()?;
+            default = Some(value);
+        }
+
+        let end_span = self.get_last_span();
+        let span = self.make_span_fspan(start_span.span, end_span);
+
+        Ok(Paramater {
+            name: name.clone().lexeme,
+            r#type: r#type,
+            default: default,
+            span: span,
+        })
+    }
+
+    fn parse_block(&mut self) -> Result<Block, ParserError> {
+        let start_span = self.current_token().span;
+        self.consume(TokenKind::LeftBrace, "Expected '{'")?;
+
+        self.skip_newlines();
+
+        let mut statements = Vec::new();
+        while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+            let stmt = self.statement()?;
+            statements.push(stmt);
+            self.skip_newlines();
+        }
+
+        let end_token = self.consume(TokenKind::RightBrace, "Expected '}'")?;
+        let span = Span::new(start_span.start, end_token.span.end, start_span.file_id);
+
+        Ok(Block { statements, span })
+    }
+
+    fn parse_type(&mut self) -> Result<Type, ParserError> {
+        match &self.current_token().kind {
+            TokenKind::Identifier => {
+                let type_name = self.advance().lexeme.clone();
+                Ok(match type_name.as_str() {
+                    "string" => Type::String,
+                    "int" => Type::Int,
+                    "double" => Type::Double,
+                    "bool" => Type::Boolean,
+                    "any" => Type::Any,
+                    "void" => Type::Void,
+                    _ => Type::Named(type_name),
+                })
+            }
+            TokenKind::String => {
+                self.advance();
+                Ok(Type::String)
+            }
+            TokenKind::Integer => {
+                self.advance();
+                Ok(Type::Int)
+            }
+            TokenKind::Double => {
+                self.advance();
+                Ok(Type::Double)
+            }
+            TokenKind::Boolean => {
+                self.advance();
+                Ok(Type::Boolean)
+            }
+            TokenKind::Any => {
+                self.advance();
+                Ok(Type::Any)
+            }
+            TokenKind::Void => {
+                self.advance();
+                Ok(Type::Void)
+            }
+            _ => {
+                let token = self.current_token().clone();
+                Err(ParserError::Expected {
+                    expected: "Expected type name".to_string(),
+                    found: token.lexeme,
+                    span: token.span,
+                })
+            }
+        }
+    }
+
+    fn synchronize(&mut self) {
+        self.advance(); // Always advance at least one token to prevent infinite loop
+        
+        while !self.is_at_end() {
+            let prev_token = self.previous().kind.clone();
+            
+            // Stop after statement terminators
+            if matches!(prev_token, TokenKind::Semicolon | TokenKind::RightBrace) {
+                return;
+            }
+            
+            // Stop before declaration keywords
+            match self.peek().kind {
+                TokenKind::Fn
+                | TokenKind::Var
+                | TokenKind::Class
+                | TokenKind::Pub
+                | TokenKind::Eof => return,
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+    }
+
+    //===== HELPER METHOD =====//
+    fn log_current_token(&mut self) {
+        println!("Current Token: {:?}", self.peek());
+    }
+
+    fn skip_newlines(&mut self) {
+        while self.current_token().kind == TokenKind::Newline {
+            self.advance();
+        }
+    }
+
+    fn make_span(&mut self, start_token: Token, end_token: Token) -> Span {
+        Span::new(start_token.span.start, end_token.span.end, self.file_id)
+    }
+
+    fn make_span_fspan(&mut self, start_span: Span, end_span: Span) -> Span {
+        Span::new(start_span.start, end_span.end, self.file_id)
+    }
+
+    fn get_last_span(&mut self) -> Span {
+        self.previous().clone().span
+    }
+
+    fn peek(&mut self) -> &Token {
+        self.tokens.get(self.position).unwrap()
+    }
+
+    fn current_token(&mut self) -> &Token {
+        self.tokens.get(self.position).unwrap()
+    }
+
+    fn is_at_end(&mut self) -> bool {
+        self.peek().kind == TokenKind::Eof || self.position >= self.tokens.len()
+    }
+
+    fn check(&mut self, kind: TokenKind) -> bool {
+        if self.is_at_end() {
+            return false;
+        }
+        self.peek().kind == kind
+    }
+
+    fn consume(&mut self, kind: TokenKind, expected: &str) -> Result<&Token, ParserError> {
+        if self.check(kind) {
+            Ok(self.advance())
+        } else {
+            let token = self.peek().clone();
+            Err(ParserError::Expected {
+                expected: expected.to_string(),
+                found: token.lexeme,
+                span: token.span,
+            })
+        }
+    }
+
+    fn advance(&mut self) -> &Token {
+        if !self.is_at_end() {
+            self.position += 1;
+        }
+        self.previous()
+    }
+
+    fn previous(&mut self) -> &Token {
+        &self.tokens[self.position - 1]
+    }
+}
