@@ -6,18 +6,23 @@ use tahuc_span::{FileId, Span};
 use crate::nodes::{
     Expression,
     ast::{AstNode, NodeId},
-    declarations::{Declaration, DeclarationKind, Function},
-    expressions::{BinaryOp, ExpressionKind, UnaryOp},
+    declarations::{Class, Declaration, DeclarationKind, Function},
+    expressions::{Argument, ExpressionKind, FunctionCall},
+    op::{AssignmentOp, BinaryOp, UnaryOp},
     statements::{Statement, StatementKind, Variable},
 };
 
 pub mod nodes;
+pub mod printer;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
+    String,
     Int,
     Double,
     Boolean,
+    Void,
+    Any,
 
     Named(String),
 }
@@ -25,9 +30,12 @@ pub enum Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Type::String => write!(f, "String"),
             Type::Int => write!(f, "Int"),
             Type::Double => write!(f, "Double"),
             Type::Boolean => write!(f, "Boolean"),
+            Type::Void => write!(f, "Void"),
+            Type::Any => write!(f, "Any"),
             Type::Named(name) => write!(f, "{}", name),
         }
     }
@@ -55,6 +63,10 @@ impl AstBuilder {
         id
     }
 
+    pub fn class_declaration(&mut self, span: Span, file_id: FileId, class: Class) -> Declaration {
+        AstNode::new(self.next_id(), span, file_id, DeclarationKind::Class(class))
+    }
+
     pub fn fn_declaration(
         &mut self,
         span: Span,
@@ -64,12 +76,76 @@ impl AstBuilder {
         AstNode::new(self.next_id(), span, file_id, DeclarationKind::Fn(function))
     }
 
-    pub fn variable_declaration(&mut self, span: Span, file_id: FileId, varibale: Variable) -> Statement {
+    pub fn variable_declaration(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        variable: Variable,
+    ) -> Declaration {
         AstNode::new(
             self.next_id(),
             span,
             file_id,
-            StatementKind::Variable(varibale),
+            DeclarationKind::Variable(variable),
+        )
+    }
+
+    pub fn variable_declaration_stmt(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        variable: Variable,
+    ) -> Statement {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            StatementKind::Variable(variable),
+        )
+    }
+
+    pub fn expression_statement(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        expression: Expression,
+    ) -> Statement {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            StatementKind::Expression(expression),
+        )
+    }
+
+    pub fn literal(&mut self, span: Span, file_id: FileId, literal: Literal) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::Literal(literal),
+        )
+    }
+
+    pub fn identifier(&mut self, span: Span, file_id: FileId, name: String) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::Identifier(name),
+        )
+    }
+
+    pub fn ternary(&mut self, span: Span, file_id: FileId, condition: Expression, then: Expression, otherwise: Expression) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::Ternary {
+                condition: Box::new(condition),
+                then: Box::new(then),
+                otherwise: Box::new(otherwise),
+            }
         )
     }
 
@@ -111,26 +187,89 @@ impl AstBuilder {
         )
     }
 
-    pub fn literal(&mut self, span: Span, file_id: FileId, literal: Literal) -> Expression {
+    pub fn array_access(&mut self, span: Span, file_id: FileId, array: Expression, index: Expression) -> Expression {
         AstNode::new(
             self.next_id(),
             span,
             file_id,
-            ExpressionKind::Literal(literal),
+            ExpressionKind::ArrayAccess{
+                array: Box::new(array),
+                index: Box::new(index),
+            }
         )
     }
 
-    pub fn expression_statement(
+    pub fn member_access(&mut self, span: Span, file_id: FileId, object: Expression, member: String) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::MemberAccess{
+                object: Box::new(object),
+                member: member,
+            }
+        )
+    }
+
+    pub fn function_call(
         &mut self,
         span: Span,
         file_id: FileId,
-        expression: Expression,
+        function: Expression,
+        args: Vec<Argument>,
+    ) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::FunctionCall(Box::new(FunctionCall {
+                function: function,
+                arguments: args,
+                span: span,
+            })),
+        )
+    }
+
+    pub fn grouping(&mut self, span: Span, file_id: FileId, expression: Expression) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::Grouping(Box::new(expression)),
+        )
+    }
+
+    pub fn assignment(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        left: Expression,
+        op: AssignmentOp,
+        right: Expression,
+    ) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::Assignment {
+                left: Box::new(left),
+                op: op,
+                right: Box::new(right),
+            },
+        )
+    }
+
+    pub fn return_statement(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        expression: Option<Expression>,
     ) -> Statement {
         AstNode::new(
             self.next_id(),
             span,
             file_id,
-            StatementKind::Expression(expression),
+            StatementKind::Return(expression),
         )
     }
 }

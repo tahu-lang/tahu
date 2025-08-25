@@ -1,6 +1,7 @@
 use tahuc_lexer::token::Literal;
+use tahuc_span::Span;
 
-use crate::nodes::ast::AstNode;
+use crate::nodes::{ast::AstNode, op::{AssignmentOp, BinaryOp, UnaryOp}};
 
 pub type Expression = AstNode<ExpressionKind>;
 
@@ -9,6 +10,12 @@ pub enum ExpressionKind {
     Literal(Literal),
 
     Identifier(String),
+
+    Ternary {
+        condition: Box<Expression>,
+        then: Box<Expression>,
+        otherwise: Box<Expression>,
+    },
 
     Binary {
         left: Box<Expression>,
@@ -20,52 +27,37 @@ pub enum ExpressionKind {
         op: UnaryOp,
         operand: Box<Expression>,
     },
+    ArrayAccess {
+        array: Box<Expression>,
+        index: Box<Expression>,
+    },
+    MemberAccess {
+        object: Box<Expression>,
+        member: String,
+    },
+    FunctionCall(Box<FunctionCall>),
+    Grouping(Box<Expression>),
+
+    Assignment {
+        left: Box<Expression>,
+        op: AssignmentOp,
+        right: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum BinaryOp {
-    /// The `+` operator (addition)
-    Add,
-    /// The `-` operator (subtraction)
-    Sub,
-    /// The `*` operator (multiplication)
-    Mul,
-    /// The `/` operator (division)
-    Div,
-    /// The `%` operator (modulus)
-    Rem,
-    /// The `&&` operator (logical and)
-    And,
-    /// The `||` operator (logical or)
-    Or,
-    /// The `^` operator (bitwise xor)
-    BitXor,
-    /// The `&` operator (bitwise and)
-    BitAnd,
-    /// The `|` operator (bitwise or)
-    BitOr,
-    /// The `<<` operator (shift left)
-    Shl,
-    /// The `>>` operator (shift right)
-    Shr,
-    /// The `==` operator (equality)
-    Eq,
-    /// The `<` operator (less than)
-    Lt,
-    /// The `<=` operator (less than or equal to)
-    Le,
-    /// The `!=` operator (not equal to)
-    Ne,
-    /// The `>=` operator (greater than or equal to)
-    Ge,
-    /// The `>` operator (greater than)
-    Gt,
+pub struct FunctionCall {
+    pub function: Expression,
+    pub arguments: Vec<Argument>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum UnaryOp {
-    /// The `!` operator for logical inversion
-    Not,
-    /// The `-` operator for negation
-    Neg,
+pub enum Argument {
+    Positional(Expression),
+    Named {
+        name: String,
+        value: Expression,
+        span: Span,
+    }
 }
