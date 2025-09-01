@@ -21,6 +21,10 @@ pub enum TokenKind {
     Val,
     Operator,
     Const,
+
+    // FFI
+    Extern,
+
     // Visibility
     Pub,
     Priv,
@@ -45,7 +49,6 @@ pub enum TokenKind {
     Double,
     Boolean,
     Void,
-    Any,
 
     /// Type & Cast
     Is, // is  type check
@@ -107,7 +110,7 @@ pub enum TokenKind {
     Semicolon,    // ;
 
     /// Null-safety
-    Null, // null literal
+    // Null, // null literal
     Question,    // ?   nullable type marker
     QuestionDot, // ?.  safe navigation operator
     At,          // @ annotation / decorator
@@ -142,6 +145,7 @@ pub enum Literal {
     Integer(i64),
     Double(f64),
     Boolean(bool),
+    Null,
 }
 
 impl TokenKind {
@@ -156,6 +160,9 @@ impl TokenKind {
             "class" => TokenKind::Class,
             "enum" => TokenKind::Enum,
             "self" => TokenKind::Self_,
+
+            // FFI
+            "extern" => TokenKind::Extern,
 
             // control flow
             "if" => TokenKind::If,
@@ -178,7 +185,6 @@ impl TokenKind {
             "double" => TokenKind::Double,
             "boolean" => TokenKind::Boolean,
             "void" => TokenKind::Void,
-            "any" => TokenKind::Any,
 
             // visibility
             "pub" => TokenKind::Pub,
@@ -195,6 +201,7 @@ impl TokenKind {
             // literal
             "true" => TokenKind::Literal(Literal::Boolean(true)),
             "false" => TokenKind::Literal(Literal::Boolean(false)),
+            "null" => TokenKind::Literal(Literal::String("null".to_string())),
             _ => TokenKind::Identifier,
         }
     }

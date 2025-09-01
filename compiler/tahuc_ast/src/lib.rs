@@ -6,7 +6,9 @@ use tahuc_span::{FileId, Span};
 use crate::nodes::{
     Expression,
     ast::{AstNode, NodeId},
-    declarations::{Class, Declaration, DeclarationKind, Function},
+    declarations::{
+        Class, Declaration, DeclarationKind, ExternFn, Function, ParameterKind,
+    },
     expressions::{Argument, ExpressionKind, FunctionCall},
     op::{AssignmentOp, BinaryOp, UnaryOp},
     statements::{Statement, StatementKind, Variable},
@@ -21,10 +23,24 @@ pub enum Type {
     Int,
     Double,
     Boolean,
+    Null,
     Void,
-    Any,
+    
+    Pointer(Box<Type>),
+    // placeholder
+    Inferred,
+    // for error
+    Error,
 
+
+    Function(Vec<Type>, Box<Type>),
     Named(String),
+}
+
+impl Type {
+    pub fn is_inferred(&self) -> bool {
+        matches!(self, Type::Inferred)
+    }
 }
 
 impl fmt::Display for Type {
@@ -34,8 +50,21 @@ impl fmt::Display for Type {
             Type::Int => write!(f, "Int"),
             Type::Double => write!(f, "Double"),
             Type::Boolean => write!(f, "Boolean"),
+            Type::Null => write!(f, "Null"),
             Type::Void => write!(f, "Void"),
-            Type::Any => write!(f, "Any"),
+            Type::Pointer(type_) => write!(f, "{}*", type_),
+            Type::Inferred => write!(f, "Inferred"),
+            Type::Error => write!(f, "Error"),
+            Type::Function(params, type_) => write!(
+                f,
+                "({}) => {}",
+                params
+                    .iter()
+                    .map(|p| p.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", "),
+                type_
+            ),
             Type::Named(name) => write!(f, "{}", name),
         }
     }
@@ -59,8 +88,29 @@ impl AstBuilder {
 
     pub fn next_id(&mut self) -> NodeId {
         let id = self.node_id;
-        self.node_id += id;
+        self.node_id += 1;
         id
+    }
+
+    pub fn build_extern_function(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        name: String,
+        params: Vec<AstNode<ParameterKind>>,
+        return_type: Type,
+    ) -> Declaration {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            DeclarationKind::Extern(ExternFn {
+                name: name,
+                parameters: params,
+                return_type: return_type,
+                span: span,
+            }),
+        )
     }
 
     pub fn class_declaration(&mut self, span: Span, file_id: FileId, class: Class) -> Declaration {
@@ -136,7 +186,14 @@ impl AstBuilder {
         )
     }
 
-    pub fn ternary(&mut self, span: Span, file_id: FileId, condition: Expression, then: Expression, otherwise: Expression) -> Expression {
+    pub fn ternary(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        condition: Expression,
+        then: Expression,
+        otherwise: Expression,
+    ) -> Expression {
         AstNode::new(
             self.next_id(),
             span,
@@ -145,7 +202,7 @@ impl AstBuilder {
                 condition: Box::new(condition),
                 then: Box::new(then),
                 otherwise: Box::new(otherwise),
-            }
+            },
         )
     }
 
@@ -187,27 +244,39 @@ impl AstBuilder {
         )
     }
 
-    pub fn array_access(&mut self, span: Span, file_id: FileId, array: Expression, index: Expression) -> Expression {
+    pub fn array_access(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        array: Expression,
+        index: Expression,
+    ) -> Expression {
         AstNode::new(
             self.next_id(),
             span,
             file_id,
-            ExpressionKind::ArrayAccess{
+            ExpressionKind::ArrayAccess {
                 array: Box::new(array),
                 index: Box::new(index),
-            }
+            },
         )
     }
 
-    pub fn member_access(&mut self, span: Span, file_id: FileId, object: Expression, member: String) -> Expression {
+    pub fn member_access(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        object: Expression,
+        member: String,
+    ) -> Expression {
         AstNode::new(
             self.next_id(),
             span,
             file_id,
-            ExpressionKind::MemberAccess{
+            ExpressionKind::MemberAccess {
                 object: Box::new(object),
                 member: member,
-            }
+            },
         )
     }
 

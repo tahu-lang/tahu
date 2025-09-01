@@ -114,4 +114,8 @@ pub enum UnaryOp {
     PreIncrement,
     /// The `--i` decrement
     PreDecrement,
+    /// *x
+    Deref,
+    /// &x
+    AddressOf,
 }

@@ -1,24 +1,26 @@
 use tahuc_ast::{
+    AstBuilder, Module, Type,
     nodes::{
         ast::AstNode,
-        declarations::{Declaration, Paramater, Visibility},
+        declarations::{Declaration, Parameter, ParameterKind, Visibility},
         expressions::ExpressionKind,
-        statements::{Block},
-    }, AstBuilder, Module, Type
+        statements::Block,
+    },
 };
 use tahuc_diagnostics::reporter::DiagnosticReporter;
 use tahuc_lexer::{
-    token::{Token, TokenKind}, LexerResult
+    LexerResult,
+    token::{Token, TokenKind},
 };
 use tahuc_span::{FileId, Span};
 
 use crate::error::ParserError;
 
+mod declaration;
 mod error;
 mod expr;
-mod stmt;
-mod declaration;
 mod shared;
+mod stmt;
 
 #[derive(Debug)]
 pub struct Parser<'a> {
@@ -96,17 +98,19 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Var | TokenKind::Val => {
                 let variable = self.variable_declaration(visibility)?;
-                Ok(self.builder.variable_declaration(variable.span, self.file_id, variable))
-            },
-
+                Ok(self
+                    .builder
+                    .variable_declaration(variable.span, self.file_id, variable))
+            }
+            TokenKind::Extern => self.parse_extern(),
             TokenKind::Pub => {
                 self.advance();
                 self.declaration(Visibility::Public)
-            },
+            }
             TokenKind::Priv => {
                 self.advance();
                 self.declaration(Visibility::Private)
-            },
+            }
             TokenKind::Prot => {
                 self.advance();
                 self.declaration(Visibility::Protected)
@@ -122,43 +126,92 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // fn variable(&mut self, visibility: Visibility) -> Result<Declaration, ParserError> {
-    //     let variable = self.parse_variable(visibility)?;
-
-    //     Ok(self.builder.variable_declaration(variable.span, self.file_id, variable))
-    // }
-
-    fn parse_paramaters(&mut self) -> Result<Paramater, ParserError> {
+    /// for now just simple extern
+    /// extern fn name(params) return_type
+    fn parse_extern(&mut self) -> Result<Declaration, ParserError> {
         let start_span = self.current_token().clone();
+        self.advance();
+
+        self.consume(TokenKind::Fn, "Expected 'fn' keyword")?;
+
         let name = self
-            .consume(TokenKind::Identifier, "Expected paramater name")?
+            .consume(TokenKind::Identifier, "Expected function name")?
             .clone();
 
-        let mut r#type = Type::Any;
+        self.consume(TokenKind::LeftParen, "Expected '(' after function name")?;
 
-        if self.check(TokenKind::Colon) {
-            self.advance();
-
-            r#type = self.parse_type()?;
+        let mut parameters = Vec::new();
+        if !self.check(TokenKind::RightParen) {
+            while !self.check(TokenKind::RightParen) && !self.is_at_end() {
+                let parameter = self.parse_parameters(true)?;
+                parameters.push(parameter);
+                if !self.check(TokenKind::Comma) {
+                    break;
+                }
+                self.advance();
+            }
         }
 
-        let mut default: Option<AstNode<ExpressionKind>> = None;
+        self.consume(TokenKind::RightParen, "expected ')' after parameters")?;
 
-        if self.check(TokenKind::Assign) {
+        let return_type = self.parse_type()?;
+
+        if self.check(TokenKind::Semicolon) {
             self.advance();
-            let value: AstNode<ExpressionKind> = self.expression()?;
-            default = Some(value);
         }
 
         let end_span = self.get_last_span();
         let span = self.make_span_fspan(start_span.span, end_span);
 
-        Ok(Paramater {
-            name: name.clone().lexeme,
-            r#type: r#type,
-            default: default,
-            span: span,
-        })
+        Ok(self.builder.build_extern_function(
+            span,
+            self.file_id,
+            name.lexeme,
+            parameters,
+            return_type,
+        ))
+    }
+
+    fn parse_parameters(&mut self, is_extern: bool) -> Result<Parameter, ParserError> {
+        let start_span = self.current_token().clone();
+        let name = self
+            .consume(TokenKind::Identifier, "Expected parameter name")?
+            .clone();
+
+        self.consume(TokenKind::Colon, "Expected ':' after parameter name")?;
+
+        let r#type = self.parse_type()?;
+
+        let mut default: Option<AstNode<ExpressionKind>> = None;
+
+        if self.check(TokenKind::Assign) && !is_extern {
+            self.advance();
+            let value: AstNode<ExpressionKind> = self.expression()?;
+            default = Some(value);
+        } 
+        else {
+            if is_extern && self.check(TokenKind::Assign) {
+                return Err(ParserError::Unexpected {
+                    unexcepted: "cannot assign value to extern function".to_string(),
+                    span: self.get_last_span(),
+                });
+
+            }
+        }
+
+        let end_span = self.get_last_span();
+        let span = self.make_span_fspan(start_span.span, end_span);
+
+        Ok(self.builder.build_parameter(
+            span,
+            self.file_id,
+            ParameterKind {
+                name: name.clone().lexeme,
+                r#type: r#type,
+                default: default,
+                span: span,
+            },
+        ))
     }
 
     fn parse_block(&mut self) -> Result<Block, ParserError> {
@@ -181,7 +234,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Result<Type, ParserError> {
-        match &self.current_token().kind {
+        let is_pointer = if self.current_token().kind == TokenKind::Mul {
+            self.advance();
+            true
+        } else {
+            false
+        };
+        let base_type = match &self.current_token().kind {
             TokenKind::Identifier => {
                 let type_name = self.advance().lexeme.clone();
                 Ok(match type_name.as_str() {
@@ -189,7 +248,6 @@ impl<'a> Parser<'a> {
                     "int" => Type::Int,
                     "double" => Type::Double,
                     "bool" => Type::Boolean,
-                    "any" => Type::Any,
                     "void" => Type::Void,
                     _ => Type::Named(type_name),
                 })
@@ -210,10 +268,6 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Type::Boolean)
             }
-            TokenKind::Any => {
-                self.advance();
-                Ok(Type::Any)
-            }
             TokenKind::Void => {
                 self.advance();
                 Ok(Type::Void)
@@ -226,20 +280,26 @@ impl<'a> Parser<'a> {
                     span: token.span,
                 })
             }
+        };
+
+        if is_pointer {
+            Ok(Type::Pointer(Box::new(base_type?)))
+        } else {
+            base_type
         }
     }
 
     fn synchronize(&mut self) {
         self.advance(); // Always advance at least one token to prevent infinite loop
-        
+
         while !self.is_at_end() {
             let prev_token = self.previous().kind.clone();
-            
+
             // Stop after statement terminators
             if matches!(prev_token, TokenKind::Semicolon | TokenKind::RightBrace) {
                 return;
             }
-            
+
             // Stop before declaration keywords
             match self.peek().kind {
                 TokenKind::Fn
@@ -257,6 +317,13 @@ impl<'a> Parser<'a> {
     //===== HELPER METHOD =====//
     fn log_current_token(&mut self) {
         println!("Current Token: {:?}", self.peek());
+    }
+
+    fn is_expression_terminator(&mut self) -> bool {
+        matches!(
+            self.current_token().kind,
+            TokenKind::Semicolon | TokenKind::RightBrace | TokenKind::Newline | TokenKind::Eof
+        )
     }
 
     fn skip_newlines(&mut self) {

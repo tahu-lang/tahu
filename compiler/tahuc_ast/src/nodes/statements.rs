@@ -22,18 +22,18 @@ pub struct Block {
 pub struct Variable {
     pub visibility: Visibility,
     pub name: String,
-    pub r#type: Option<Type>,
+    pub variable_type: Type,
     pub initializer: Option<Expression>,
     pub is_mutable: bool,
     pub span: Span,
 }
 
 impl Variable {
-    pub fn new(visibility: Visibility, name: String, r#type: Option<Type>, initializer: Option<Expression>, is_mutable: bool, span: Span) -> Self {
+    pub fn new(visibility: Visibility, name: String, variable_type: Type, initializer: Option<Expression>, is_mutable: bool, span: Span) -> Self {
         Self {
             visibility,
             name,
-            r#type,
+            variable_type,
             initializer,
             is_mutable,
             span,

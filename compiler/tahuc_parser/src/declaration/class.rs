@@ -20,7 +20,7 @@ impl<'a> Parser<'a> {
 
         // TODO: implement extend and implement
 
-        let _ = self.consume(TokenKind::LeftBrace, "Expected '{' before class body");
+        self.consume(TokenKind::LeftBrace, "Expected '{' before class body")?;
 
         let mut fields: Vec<Variable> = vec![];
         let mut methods: Vec<Function> = vec![];
@@ -57,7 +57,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let _ = self.consume(TokenKind::RightBrace, "Expected '}' after class body");
+        self.consume(TokenKind::RightBrace, "Expected '}' after class body")?;
 
         let end_token = self.previous().clone();
         let span = self.make_span(start_token, end_token);

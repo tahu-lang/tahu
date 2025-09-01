@@ -1,6 +1,13 @@
-use tahuc_span::Span;
+use tahuc_span::{FileId, Span};
 
-use crate::{nodes::{ast::AstNode, statements::{Block, Variable}, Expression}, Type};
+use crate::{
+    AstBuilder, Type,
+    nodes::{
+        Expression,
+        ast::AstNode,
+        statements::{Block, Variable},
+    },
+};
 
 pub type Declaration = AstNode<DeclarationKind>;
 
@@ -10,6 +17,15 @@ pub enum DeclarationKind {
     Class(Class),
     Fn(Function),
     Variable(Variable),
+    Extern(ExternFn),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternFn {
+    pub name: String,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Type,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -56,31 +72,60 @@ pub struct Field {
     pub span: Span,
 }
 
+pub type Function = AstNode<FunctionKind>;
+
 #[derive(Debug, Clone, PartialEq)]
-pub struct Function {
+pub struct FunctionKind {
     pub visibility: Visibility,
     pub name: String,
-    pub paramaters: Vec<Paramater>,
+    pub parameters: Vec<Parameter>,
+    pub return_type: Type,
     pub body: Block,
     pub span: Span,
 }
 
-impl Function {
-    pub fn new(visibility: Visibility, name: String, paramaters: Vec<Paramater>, body: Block, span: Span) -> Self {
-        Self {
-            visibility,
-            name: name,
-            paramaters,
-            body: body,
-            span,
-        }
-    }
-}
+pub type Parameter = AstNode<ParameterKind>;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Paramater {
+pub struct ParameterKind {
     pub name: String,
     pub r#type: Type,
     pub default: Option<Expression>,
     pub span: Span,
+}
+
+impl AstBuilder {
+    pub fn build_function(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        visibility: Visibility,
+        name: String,
+        parameters: Vec<Parameter>,
+        return_type: Type,
+        body: Block,
+    ) -> Function {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            FunctionKind {
+                visibility,
+                name,
+                parameters,
+                return_type,
+                body,
+                span,
+            }
+        )
+    }
+
+    pub fn build_parameter(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        parameter: ParameterKind,
+    ) -> AstNode<ParameterKind> {
+        AstNode::new(self.next_id(), span, file_id, parameter)
+    }
 }
