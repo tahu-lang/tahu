@@ -1,8 +1,8 @@
 fn main() {
-    val is_equal = 5 == 5
-    val is_not_equal = 5 != 3
-    val is_greater = 5 > 3
-    val is_less = 3 < 5
-    val is_greater_equal = 5 >= 5
-    val is_less_equal = 3 <= 5
+    val is_equal = 5 == 5;
+    val is_not_equal = 5 != 3;
+    val is_greater = 5 > 3;
+    val is_less = 3 < 5;
+    val is_greater_equal = 5 >= 5;
+    val is_less_equal = 3 <= 5;
 }

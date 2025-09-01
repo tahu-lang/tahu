@@ -40,6 +40,10 @@ impl Span {
     pub fn len(&self) -> u32 {
         self.end.offset - self.start.offset
     }
+
+    pub fn dummy() -> Span {
+        Span::new(Position::new(0, 0, 0), Position::new(0, 0, 0), FileId(0))
+    }
 }
 
 impl Position {

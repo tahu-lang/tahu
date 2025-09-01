@@ -1,46 +1,46 @@
 fn arithmetic() {
-    val sum = 1 + 2 * 3 - 4 / 5 % 6
+    val sum = 1 + 2 * 3 - 4 / 5 % 6;
 }
 
 fn assigment() {
-    var x = 5
-    x += 3
-    x -= 2
-    x *= 4
-    x /= 2
-    x %= 3
+    var x = 5;
+    x += 3;
+    x -= 2;
+    x *= 4;
+    x /= 2;
+    x %= 3;
 }
 
 fn bitwise() {
-    val and_result = 5 & 3
-    val or_result = 5 | 3
-    val xor_result = 5 ^ 3
-    val left_shift = 5 << 1
-    val right_shift = 5 >> 1
+    val and_result = 5 & 3;
+    val or_result = 5 | 3;
+    val xor_result = 5 ^ 3;
+    val left_shift = 5 << 1;
+    val right_shift = 5 >> 1;
 }
 
 fn comparison() {
-    val is_equal = 5 == 5
-    val is_not_equal = 5 != 3
-    val is_greater = 5 > 3
-    val is_less = 3 < 5
-    val is_greater_equal = 5 >= 5
-    val is_less_equal = 3 <= 5
+    val is_equal = 5 == 5;
+    val is_not_equal = 5 != 3;
+    val is_greater = 5 > 3;
+    val is_less = 3 < 5;
+    val is_greater_equal = 5 >= 5;
+    val is_less_equal = 3 <= 5;
 }
 
 fn logical() {
-    val result = true && false || true
+    val result = true && false || true;
 }
 
 fn unary() {
-    val x = -1 + 2 * -(3 + 4)
+    val x = -1 + 2 * -(3 + 4);
 }
 
 fn main() {
-    arithmetic()
-    assigment()
-    bitwise()
-    comparison()
-    logical()
-    unary()
+    arithmetic();
+    assigment();
+    bitwise();
+    comparison();
+    logical();
+    unary();
 }
