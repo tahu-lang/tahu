@@ -1,0 +1,180 @@
+use tahuc_ast::{
+    Module,
+    nodes::{
+        Expression,
+        declarations::{Declaration, DeclarationKind},
+        expressions::{Argument, ExpressionKind},
+        statements::{Statement, StatementKind, Variable},
+    },
+};
+
+use crate::{
+    database::Database,
+    error::SemanticError,
+    symbol::{Symbol, SymbolKind, VariableSymbol},
+};
+
+pub struct SymbolResolution<'a> {
+    db: &'a mut Database,
+}
+
+impl<'a> SymbolResolution<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
+        Self { db }
+    }
+
+    pub fn analyze_module(&mut self, module: &Module) {
+        self.db.reset_scope();
+        for declaration in &module.declaration {
+            self.resolve_declaration(declaration);
+        }
+    }
+
+    fn add_variable(&mut self, var: &Variable) -> Result<(), String> {
+        let symbol = Symbol {
+            name: var.name.clone(),
+            span: var.span,
+            kind: SymbolKind::Variable(VariableSymbol {
+                name: var.name.clone(),
+                declared_type: var.variable_type.clone(),
+                need_inferred: var.variable_type.is_inferred(),
+                inferred_type: None,
+                initializer: None,
+                final_type: var.variable_type.clone(),
+            }),
+        };
+
+        self.db.add_symbol(symbol)
+    }
+
+    fn resolve_declaration(&mut self, declaration: &Declaration) {
+        match &declaration.kind {
+            DeclarationKind::Fn(func) => {
+                if let Some(_) = self.db.lookup_symbol(func.kind.name.clone()) {
+                    self.db.enter_scope();
+
+                    for p in func.kind.parameters.iter() {
+                        if let Err(_) = self.db.add_symbol(Symbol {
+                            name: p.kind.name.clone(),
+                            span: p.span,
+                            kind: SymbolKind::Variable(VariableSymbol {
+                                name: p.kind.name.clone(),
+                                declared_type: p.kind.r#type.clone(),
+                                initializer: None,
+
+                                need_inferred: false,
+                                inferred_type: None,
+                                final_type: p.kind.r#type.clone(),
+                            }),
+                        }) {
+                            let prev = self.db.lookup_symbol(p.kind.name.clone()).unwrap();
+                            let prev_span = prev.span;
+                            self.db
+                                .report_error(crate::error::SemanticError::Duplicate {
+                                    name: p.kind.name.clone(),
+                                    span: p.kind.span,
+                                    previous: prev.name,
+                                    previous_span: prev_span,
+                                });
+                        }
+                    }
+
+                    func.kind.body.statements.iter().for_each(|statement| {
+                        self.resolve_statement(statement);
+                    });
+
+                    self.db.exit_scope();
+                }
+            }
+            DeclarationKind::Variable(var) => {
+                if let Some(_) = self.db.lookup_symbol(var.name.clone()) {
+                    if let Some(initiliazer) = &var.initializer {
+                        self.resolve_expression(initiliazer);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn resolve_statement(&mut self, statement: &Statement) {
+        match &statement.kind {
+            StatementKind::Variable(var) => {
+                if let Err(_) = self.add_variable(var) {
+                    let prev_name = self.db.lookup_symbol(var.name.clone()).unwrap().name;
+                    let prev_span = self.db.lookup_symbol(var.name.clone()).unwrap().span;
+                    self.db.report_error(SemanticError::Duplicate {
+                        name: var.name.clone(),
+                        span: var.span,
+                        previous: prev_name,
+                        previous_span: prev_span,
+                    });
+                }
+                if let Some(initializer) = &var.initializer {
+                    self.resolve_expression(initializer);
+                }
+            }
+            StatementKind::Return(ret) => {
+                if let Some(value) = &ret {
+                    self.resolve_expression(value);
+                }
+            }
+            StatementKind::Block(block) => {
+                self.db.enter_scope();
+                for statement in &block.statements {
+                    self.resolve_statement(statement);
+                }
+                self.db.exit_scope();
+            }
+            StatementKind::Expression(expr) => {
+                self.resolve_expression(expr);
+            }
+        }
+    }
+
+    fn resolve_expression(&mut self, expression: &Expression) {
+        match &expression.kind {
+            ExpressionKind::Identifier(identifer) => {
+                if self.db.lookup_symbol(identifer.clone()).is_none() {
+                    self.db.report_error(SemanticError::Undefined {
+                        name: identifer.clone(),
+                        span: expression.span,
+                    });
+                }
+            }
+            ExpressionKind::Assignment { left, right, .. } => {
+                self.resolve_expression(left);
+                self.resolve_expression(right);
+            }
+            ExpressionKind::Binary { left, right, .. } => {
+                self.resolve_expression(left);
+                self.resolve_expression(right);
+            }
+            ExpressionKind::Unary { operand, .. } => {
+                self.resolve_expression(operand);
+            }
+            ExpressionKind::FunctionCall(callee) => {
+                self.resolve_expression(&callee.function);
+
+                callee.arguments.iter().for_each(|argument| {
+                    self.resolve_argument(argument);
+                });
+            }
+            ExpressionKind::MemberAccess { object, .. } => {
+                self.resolve_expression(object);
+            }
+            _ => {}
+        }
+    }
+
+    fn resolve_argument(&mut self, argument: &Argument) {
+        match &argument {
+            Argument::Named { value, .. } => {
+                self.resolve_expression(value);
+            }
+            Argument::Positional(expr) => {
+                self.resolve_expression(expr);
+            }
+        }
+    }
+}

@@ -81,7 +81,10 @@ impl<'a> Lexer<'a> {
 
             Some('\n') | Some('\r') => {
                 self.advance();
-                Ok(self.make_token(TokenKind::Newline, start_pos, "\n"))
+                Ok(self.next_token()?)
+
+                // just delete this fucking token shit
+                // Ok(self.make_token(TokenKind::Newline, start_pos, "\n"))
             }
 
             // TODO: Implement comment
@@ -221,6 +224,9 @@ impl<'a> Lexer<'a> {
                     } else {
                         Ok(self.make_token(TokenKind::Shl, start_pos, "<<"))
                     }
+                } else if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(self.make_token(TokenKind::Le, start_pos, "<="))
                 } else {
                     Ok(self.make_token(TokenKind::Lt, start_pos, "<"))
                 }
@@ -231,17 +237,56 @@ impl<'a> Lexer<'a> {
                     self.advance();
                     if self.current_char == Some('=') {
                         self.advance();
-                        Ok(self.make_token(TokenKind::ShlAssign, start_pos, ">>="))
+                        Ok(self.make_token(TokenKind::ShrAssign, start_pos, ">>="))
                     } else {
-                        Ok(self.make_token(TokenKind::Shl, start_pos, ">>"))
+                        Ok(self.make_token(TokenKind::Shr, start_pos, ">>"))
                     }
+                } else if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(self.make_token(TokenKind::Ge, start_pos, ">="))
                 } else {
-                    Ok(self.make_token(TokenKind::Lt, start_pos, ">"))
+                    Ok(self.make_token(TokenKind::Gt, start_pos, ">"))
                 }
             }
             '!' => {
                 self.advance();
-                Ok(self.make_token(TokenKind::Not, start_pos, "!"))
+                if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(self.make_token(TokenKind::Ne, start_pos, "!="))
+                } else {
+                    Ok(self.make_token(TokenKind::Not, start_pos, "!"))
+                }
+            }
+            '&' => {
+                self.advance();
+                if self.current_char == Some('&') {
+                    self.advance();
+                    Ok(self.make_token(TokenKind::And, start_pos, "&&"))
+                } else {
+                    Ok(self.make_token(TokenKind::BitAnd, start_pos, "&"))
+                }
+            }
+            '|' => {
+                self.advance();
+                if self.current_char == Some('|') {
+                    self.advance();
+                    Ok(self.make_token(TokenKind::Or, start_pos, "||"))
+                } else {
+                    Ok(self.make_token(TokenKind::BitOr, start_pos, "|"))
+                }
+            }
+            '^' => {
+                self.advance();
+                if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(self.make_token(TokenKind::XorAssign, start_pos, "^="))
+                } else {
+                    Ok(self.make_token(TokenKind::BitXor, start_pos, "^"))
+                }
+            }
+            '~' => {
+                self.advance();
+                Ok(self.make_token(TokenKind::BitNot, start_pos, "~"))
             }
 
             _ => self.special(ch, start_pos),
@@ -263,7 +308,7 @@ impl<'a> Lexer<'a> {
                         Ok(self.make_token(TokenKind::Range, start_pos, ".."))
                     }
                 } else {
-                    Ok(self.make_token(TokenKind::Assign, start_pos, "."))
+                    Ok(self.make_token(TokenKind::Dot, start_pos, "."))
                 }
             }
 

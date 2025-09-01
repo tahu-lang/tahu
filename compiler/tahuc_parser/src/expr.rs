@@ -15,7 +15,7 @@ impl<'a> Parser<'a> {
     fn parse_expression_assigment(&mut self) -> Result<Expression, ParserError> {
         let mut left = self.expression_ternary()?;
 
-        while !self.is_at_end() {
+        while !self.is_at_end() && !self.is_expression_terminator() {
             let op = match self.current_token().kind {
                 TokenKind::Assign => AssignmentOp::Assign,
                 // Arithmetic compound assignments
@@ -67,7 +67,7 @@ impl<'a> Parser<'a> {
     fn parse_binary_expression(&mut self, min_prec: u8) -> Result<Expression, ParserError> {
         let mut left = self.expression_unary()?;
 
-        while !self.is_at_end() {
+        while !self.is_at_end() && !self.is_expression_terminator() {
             let (op, prec) = match self.current_token().kind {
                 TokenKind::Or => (BinaryOp::Or, 0),
                 TokenKind::And => (BinaryOp::And, 1),
@@ -116,6 +116,18 @@ impl<'a> Parser<'a> {
     fn expression_unary(&mut self) -> Result<Expression, ParserError> {
         // Check for unary operators
         match self.current_token().kind {
+            TokenKind::BitAnd => {
+                let op_token = self.advance().clone();
+                let expr = self.expression_unary()?; // address-of is right-associative
+                let span = self.make_span_fspan(op_token.span, expr.span);
+                Ok(self.builder.unary(span, self.file_id, UnaryOp::AddressOf, expr))
+            }
+            TokenKind::Mul => {
+                let op_token = self.advance().clone();
+                let expr = self.expression_unary()?; // dereference is right-associative
+                let span = self.make_span_fspan(op_token.span, expr.span);
+                Ok(self.builder.unary(span, self.file_id, UnaryOp::Deref, expr))
+            }
             // Prefix unary operators
             TokenKind::Sub => {
                 let op_token = self.advance().clone();

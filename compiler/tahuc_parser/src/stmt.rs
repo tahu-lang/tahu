@@ -19,10 +19,7 @@ impl<'a> Parser<'a> {
         let start_token = self.current_token().clone();
         let expr = self.expression()?;
 
-        // Skip optional semicolon if present
-        if self.check(TokenKind::Semicolon) {
-            self.advance();
-        }
+        self.consume(TokenKind::Semicolon, "Expected ';' after expression.")?;
 
         let end_token = self.current_token().clone();
         let span = self.make_span(start_token, end_token);
@@ -38,6 +35,8 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
+
+         self.consume(TokenKind::Semicolon, "Expected ';' after return value.")?;
 
         let end_token = self.current_token().clone();
         let span = self.make_span(start_token, end_token);
