@@ -87,6 +87,19 @@ impl<'a> Lexer<'a> {
                 // Ok(self.make_token(TokenKind::Newline, start_pos, "\n"))
             }
 
+            // skip comment
+            Some('/') => {
+                while let Some(c) = self.current_char {
+                    if c == '\n' {
+                        return Ok(self.next_token()?);
+                    }
+                    self.advance();
+                }
+
+                self.advance();
+                Ok(self.next_token()?)
+            }
+
             // TODO: Implement comment
             Some(ch) if ch.is_ascii_digit() => self.read_number(),
             Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => self.read_identifier(),

@@ -1,6 +1,7 @@
 use tahuc_ast::{
     AstBuilder, Module, Type,
     nodes::{
+        Expression,
         ast::AstNode,
         declarations::{Declaration, Parameter, ParameterKind, Visibility},
         expressions::ExpressionKind,
@@ -57,6 +58,22 @@ impl<'a> Parser<'a> {
             position: 0,
             reporter,
         }
+    }
+
+    pub fn parse_expression(
+        file_id: FileId,
+        tokens: Vec<Token>,
+        reporter: &'a mut DiagnosticReporter,
+    ) -> Result<Expression, ParserError> {
+        let mut parser = Parser::new(
+            file_id,
+            LexerResult {
+                tokens,
+                has_errors: false,
+            },
+            reporter,
+        );
+        parser.expression()
     }
 
     pub fn parse(&mut self) -> ParserResult {
@@ -188,14 +205,12 @@ impl<'a> Parser<'a> {
             self.advance();
             let value: AstNode<ExpressionKind> = self.expression()?;
             default = Some(value);
-        } 
-        else {
+        } else {
             if is_extern && self.check(TokenKind::Assign) {
                 return Err(ParserError::Unexpected {
                     unexcepted: "cannot assign value to extern function".to_string(),
                     span: self.get_last_span(),
                 });
-
             }
         }
 
@@ -272,6 +287,12 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Type::Void)
             }
+            TokenKind::LeftBracket => {
+                self.advance();
+                let ty = self.parse_type()?;
+                self.consume(TokenKind::RightBracket, "Expected ')' after type")?;
+                Ok(Type::Array(Box::new(ty)))
+            }
             _ => {
                 let token = self.current_token().clone();
                 Err(ParserError::Expected {
@@ -345,15 +366,23 @@ impl<'a> Parser<'a> {
     }
 
     fn peek(&mut self) -> &Token {
-        self.tokens.get(self.position).unwrap()
+        // self.tokens.get(self.position).unwrap()
+        self.tokens
+            .get(self.position)
+            .unwrap_or_else(|| self.tokens.last().unwrap())
     }
 
     fn current_token(&mut self) -> &Token {
-        self.tokens.get(self.position).unwrap()
+        self.peek()
     }
 
     fn is_at_end(&mut self) -> bool {
-        self.peek().kind == TokenKind::Eof || self.position >= self.tokens.len()
+        // self.peek().kind == TokenKind::Eof || self.position >= self.tokens.len()
+        if self.position >= self.tokens.len() {
+            true
+        } else {
+            self.peek().kind == TokenKind::Eof
+        }
     }
 
     fn check(&mut self, kind: TokenKind) -> bool {
@@ -368,6 +397,7 @@ impl<'a> Parser<'a> {
             Ok(self.advance())
         } else {
             let token = self.peek().clone();
+            self.synchronize();
             Err(ParserError::Expected {
                 expected: expected.to_string(),
                 found: token.lexeme,

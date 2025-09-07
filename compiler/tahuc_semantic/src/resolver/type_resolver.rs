@@ -1,12 +1,7 @@
 use tahuc_ast::{
-    Module, Type,
     nodes::{
-        Expression,
-        declarations::{Declaration, DeclarationKind},
-        expressions::ExpressionKind,
-        op::{AssignmentOp, BinaryOp, UnaryOp},
-        statements::{Statement, StatementKind},
-    },
+        declarations::{Declaration, DeclarationKind}, expressions::ExpressionKind, op::{AssignmentOp, BinaryOp, UnaryOp}, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
+    }, Module, Type
 };
 use tahuc_lexer::token::Literal;
 
@@ -90,7 +85,7 @@ impl<'a> TypeAnalyzer<'a> {
                 // placeholder
                 if let Some(symbol_var) = self.db.lookup_symbol(var.name.clone()) {
                     if let Some(initializer) = &var.initializer {
-                        self.resolve_expression(initializer);
+                        self.resolve_expression(initializer, Some(var.variable_type.clone()));
                     } else {
                         if let Some(_) = symbol_var.get_variable() {
                             // variable.
@@ -104,42 +99,12 @@ impl<'a> TypeAnalyzer<'a> {
 
     fn resolve_statement(&mut self, statement: &Statement) {
         match &statement.kind {
-            StatementKind::Block(block) => {
-                block.statements.iter().for_each(|s| {
-                    self.resolve_statement(s);
-                });
-            }
             StatementKind::Expression(exprs) => {
-                self.resolve_expression(exprs);
-            }
-            StatementKind::Return(ret) => {
-                if let Some(return_type) = &ret {
-                    let result = self.resolve_expression(return_type);
-
-                    if result == Type::Error {
-                        return;
-                    }
-
-                    self.db.add_type(statement.id, result.clone());
-
-                    // placeholder return type is match with function
-                    let expected = self.current_function_return_type.clone();
-                    if !self.is_type_compatible(&expected, &result) {
-                        self.db.report_error(SemanticError::TypeMismatch {
-                            expected: expected.to_string(),
-                            found: result.to_string(),
-                            span: return_type.span,
-                        });
-                        // println!(
-                        //     "return type mismatch expected {:?} but got {:?}",
-                        //     expected, result
-                        // );
-                    }
-                }
+                self.resolve_expression(exprs, None);
             }
             StatementKind::Variable(var) => {
                 if let Some(initializer) = &var.initializer {
-                    let result = self.resolve_expression(initializer);
+                    let result = self.resolve_expression(initializer, Some(var.variable_type.clone()));
 
                     let symbol = Symbol {
                         name: var.name.clone(),
@@ -163,11 +128,6 @@ impl<'a> TypeAnalyzer<'a> {
                             found: result.to_string(),
                             span: var.span,
                         });
-                        // println!(
-                        //     "Type mismatch expected {:?} but got {:?}",
-                        //     var.variable_type.clone(),
-                        //     result
-                        // );
                     }
                 } else {
                     let symbol = Symbol {
@@ -187,10 +147,75 @@ impl<'a> TypeAnalyzer<'a> {
                     self.db.add_type(statement.id, var.variable_type.clone());
                 }
             }
+            StatementKind::Assignment { left, op, right } => {
+                let left_ty = self.resolve_expression(&left, None);
+                let right_ty = self.resolve_expression(&right, Some(left_ty.clone()));
+
+                if left_ty != right_ty {
+                    self.db.report_error(SemanticError::TypeMismatch {
+                        expected: left_ty.to_string(),
+                        found: right_ty.to_string(),
+                        span: statement.span,
+                    });
+                } else {
+                    self.db.add_type(statement.id, left_ty);
+                }
+            }
+            StatementKind::Return(ret) => {
+                if let Some(return_type) = &ret {
+                    let result = self.resolve_expression(return_type, Some(self.current_function_return_type.clone()));
+
+                    if result == Type::Error {
+                        return;
+                    }
+
+                    self.db.add_type(statement.id, result.clone());
+
+                    let expected = self.current_function_return_type.clone();
+                    if !self.is_type_compatible(&expected, &result) {
+                        self.db.report_error(SemanticError::TypeMismatch {
+                            expected: expected.to_string(),
+                            found: result.to_string(),
+                            span: return_type.span,
+                        });
+                    }
+                }
+            }
+            StatementKind::IfStatement(if_stmt) => {
+                self.resolve_if_statement(if_stmt);
+            }
+            StatementKind::WhileStatement(while_stmt) => {
+                let condition = self.resolve_expression(&while_stmt.condition, None);
+                self.resolve_block(&while_stmt.body);
+
+                self.db.add_type(statement.id, condition);
+            }
+            _ => {}
         }
     }
 
-    fn resolve_expression(&mut self, expression: &Expression) -> Type {
+    fn resolve_block(&mut self, block: &Block) {
+        self.db.enter_scope();
+        for statement in &block.statements {
+            self.resolve_statement(statement);
+        }
+        self.db.exit_scope();
+    }
+
+    fn resolve_if_statement(&mut self, if_stmt: &IfStatement) {
+        let ty = self.resolve_expression(&if_stmt.condition, None);
+        self.db.add_type(if_stmt.condition.id, ty.clone());
+        self.resolve_block(&if_stmt.then_branch);
+
+        if let Some(else_branch) = &if_stmt.else_branch {
+            match &else_branch {
+                ElseBranch::Block(block) => self.resolve_block(block),
+                ElseBranch::If(else_if_stmt) => self.resolve_if_statement(else_if_stmt),
+            }
+        }
+    }
+
+    fn resolve_expression(&mut self, expression: &Expression, expected: Option<Type>) -> Type {
         match &expression.kind {
             ExpressionKind::Literal(literal) => {
                 let result = match literal {
@@ -198,59 +223,78 @@ impl<'a> TypeAnalyzer<'a> {
                     Literal::Integer(_) => Type::Int,
                     Literal::Boolean(_) => Type::Boolean,
                     Literal::Double(_) => Type::Double,
-                    Literal::Null => Type::Null,
+                    Literal::Null => {
+                        match expected {
+                            Some(Type::Nullable(inner)) => Type::Nullable(inner.clone()),
+                            Some(Type::Pointer(inner))  => Type::Pointer(inner.clone()),
+                            Some(ty) => {
+                                self.db.report_error(SemanticError::TypeMismatch {
+                                    expected: ty.to_string(),
+                                    found: "null".to_string(),
+                                    span: expression.span,
+                                });
+                                Type::Error
+                            }
+                            None => Type::Inferred,
+                        }
+                    }
                 };
 
-                self.db.add_type(expression.id, result.clone()); // ← TAMBAHKAN
+                self.db.add_type(expression.id, result.clone());
+                result
+            }
+            ExpressionKind::TemplateString { parts } => {
+                let result = Type::String;
+                self.db.add_type(expression.id, result.clone());
                 result
             }
             ExpressionKind::Identifier(ident) => {
                 if let Some(symbol) = self.db.lookup_symbol(ident.clone()) {
                     if let Some(func) = symbol.get_function() {
                         let result = func.return_type.clone();
-                        self.db.add_type(expression.id, result.clone()); // ← TAMBAHKAN
+                        self.db.add_type(expression.id, result.clone());
                         return result;
                     } else if let Some(var) = symbol.get_variable() {
                         let result = var
                             .inferred_type
                             .clone()
                             .unwrap_or(var.declared_type.clone());
-                        self.db.add_type(expression.id, result.clone()); // ← TAMBAHKAN
+                        self.db.add_type(expression.id, result.clone());
                         return result;
                     }
                 }
 
-                self.db.add_type(expression.id, Type::Error); // ← TAMBAHKAN untuk error case
+                self.db.add_type(expression.id, Type::Error);
                 Type::Error
             }
-            ExpressionKind::Assignment { left, op, right } => {
-                let left_type = self.resolve_expression(&left);
-                let right_type = self.resolve_expression(&right);
+            // ExpressionKind::Assignment { left, op, right } => {
+            //     let left_type = self.resolve_expression(&left, None);
+            //     let right_type = self.resolve_expression(&right, None);
 
-                if left_type == Type::Error || right_type == Type::Error {
-                    self.db.add_type(expression.id, Type::Error);
-                    return Type::Error;
-                }
+            //     if left_type == Type::Error || right_type == Type::Error {
+            //         self.db.add_type(expression.id, Type::Error);
+            //         return Type::Error;
+            //     }
 
-                let result = self.infer_assingment_operator_type(&left_type, &right_type, op);
+            //     let result = self.infer_assingment_operator_type(&left_type, &right_type, op);
 
-                match result {
-                    Ok(ty) => {
-                        self.db.add_type(expression.id, ty.clone());
-                        return ty;
-                    }
-                    Err(err) => {
-                        self.db.add_type(expression.id, Type::Error);
-                        self.db.report_error(SemanticError::Raw { message: err, span: left.span.merge(right.span) });
-                        // println!("Assignment error: {}", err);
-                        // println!("{}", err);
-                        return Type::Error;
-                    }
-                };
-            }
+            //     match result {
+            //         Ok(ty) => {
+            //             self.db.add_type(expression.id, ty.clone());
+            //             return ty;
+            //         }
+            //         Err(err) => {
+            //             self.db.add_type(expression.id, Type::Error);
+            //             self.db.report_error(SemanticError::Raw { message: err, span: left.span.merge(right.span) });
+            //             // println!("Assignment error: {}", err);
+            //             // println!("{}", err);
+            //             return Type::Error;
+            //         }
+            //     };
+            // }
             ExpressionKind::Binary { left, op, right } => {
-                let left_type = self.resolve_expression(&left);
-                let right_type = self.resolve_expression(&right);
+                let left_type = self.resolve_expression(&left, None);
+                let right_type = self.resolve_expression(&right, None);
 
                 if left_type == Type::Error || right_type == Type::Error {
                     self.db.add_type(expression.id, Type::Error);
@@ -272,7 +316,7 @@ impl<'a> TypeAnalyzer<'a> {
                 };
             }
             ExpressionKind::Unary { operand, op } => {
-                let operand_type = self.resolve_expression(&operand);
+                let operand_type = self.resolve_expression(&operand, None);
 
                 let result = match op {
                     UnaryOp::AddressOf => {
@@ -299,15 +343,26 @@ impl<'a> TypeAnalyzer<'a> {
                             Type::Error
                         }
                     }
-                    UnaryOp::Minus => operand_type,
+                    // UnaryOp::Minus => operand_type,
                     _ => {
-                        // println!("Unknown unary operator: {:?}", op);
-                        self.db.report_error(SemanticError::InvalidUnaryOp {
-                            op: op.clone(),
-                            span: operand.span,
-                            reason: "Unknown unary operator".to_string()
-                        });
-                        Type::Error
+                        if operand_type == Type::Error {
+                            self.db.report_error(SemanticError::InvalidUnaryOp {
+                                op: op.clone(),
+                                span: operand.span,
+                                reason: "Operand resolved to Error type".to_string(),
+                            });
+                            return Type::Error;
+                        }
+
+                        operand_type
+
+                        // // println!("Unknown unary operator: {:?}", op);
+                        // self.db.report_error(SemanticError::InvalidUnaryOp {
+                        //     op: op.clone(),
+                        //     span: operand.span,
+                        //     reason: "Unknown unary operator".to_string()
+                        // });
+                        // Type::Error
                     }
                 };
 
@@ -322,20 +377,79 @@ impl<'a> TypeAnalyzer<'a> {
                         tahuc_ast::nodes::expressions::Argument::Positional(expr) => expr,
                         tahuc_ast::nodes::expressions::Argument::Named { value, .. } => value,
                     };
-                    self.resolve_expression(arg_expr);
+                    self.resolve_expression(arg_expr, None);
                 }
 
-                let return_type = self.resolve_expression(&func.function);
+                let return_type = self.resolve_expression(&func.function, None);
 
-                // println!("fn call {:?} -> return {:?}", func.function.kind, return_type);
                 self.db.add_type(expression.id, return_type.clone());
 
                 return_type
             }
             ExpressionKind::Grouping(grouping) => {
-                let result = self.resolve_expression(&grouping);
+                let result = self.resolve_expression(&grouping, None);
                 self.db.add_type(expression.id, result.clone());
                 result
+            }
+            ExpressionKind::ArrayLiteral { elements } => {
+                if elements.is_empty() {
+                    if let Some(expected_ty) = expected {
+                        self.db.add_type(expression.id, expected_ty.clone());
+                        return expected_ty;
+                    } else {
+                        self.db.report_error(SemanticError::Raw {
+                            message: "Cannot infer type of array".to_string(),
+                            span: expression.span,
+                        });
+                        return Type::Error;
+                    }
+                }
+
+                let element_expected = match expected {
+                    Some(Type::Array(inner)) => Some(*inner.clone()),
+                    _ => None,
+                };
+
+                let first_ty = self.resolve_expression(&elements[0], element_expected);
+
+                for element in &elements[1..] {
+                    let elem_ty = self.resolve_expression(element, Some(first_ty.clone()));
+                    if elem_ty != first_ty {
+                        self.db.report_error(SemanticError::TypeMismatch {
+                            expected: first_ty.to_string(),
+                            found: elem_ty.to_string(),
+                            span: element.span
+                        });
+                        return Type::Error;
+                    }
+                }
+
+                let result = Type::Array(Box::new(first_ty));
+                self.db.add_type(expression.id, result.clone());
+                result
+            }
+            ExpressionKind::ArrayAccess { array, index } => {
+                let arr_ty = self.resolve_expression(&array, None);
+                let idx_ty = self.resolve_expression(&index, None);
+
+                if idx_ty != Type::Int {
+                    self.db.report_error(SemanticError::Raw {
+                        message: format!("Array index must be Int, Found {:?}", idx_ty),
+                        span: index.span,
+                    });
+                }
+
+                let elem_type = match arr_ty {
+                    Type::Array(inner) => *inner, // ambil tipe elemen
+                    _ => {
+                        // error: trying to index non-array
+                        Type::Error
+                    }
+                };
+                
+                self.db.add_type(expression.id, elem_type.clone());
+
+                elem_type
             }
             _ => {
                 self.db.report_error(SemanticError::Raw {
@@ -401,6 +515,7 @@ impl<'a> TypeAnalyzer<'a> {
                     (Type::Int, Type::Double) | (Type::Double, Type::Int) => Ok(Type::Double),
                     // (Type::String, _) | (_, Type::String) if operator == "+" => Ok(Type::String),
                     // (Type::String, _) | (_, Type::String) if operator == &BinaryOp::Add => Ok(Type::String),
+                    (Type::Pointer(_), Type::Int) => Ok(Type::Pointer(Box::new(Type::Int))),
                     _ => Err(format!(
                         "Cannot apply operator '{:?}' to {:?} and {:?}",
                         operator, left, right
@@ -430,7 +545,17 @@ impl<'a> TypeAnalyzer<'a> {
                     )),
                 }
             }
-            _ => Err(format!("Unknown binary operator: {:?}", operator)),
+            BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor 
+            | BinaryOp::Shl | BinaryOp::Shr => {
+                match (left, right) {
+                    (Type::Int, Type::Int) => Ok(Type::Int),
+                    _ => Err(format!(
+                        "Bitwise operator '{:?}' requires integer operands, got {:?} and {:?}",
+                        operator, left, right
+                    )),
+                }
+            }
+            // _ => Err(format!("Unknown binary operator: {:?}", operator)),
         }
     }
 
