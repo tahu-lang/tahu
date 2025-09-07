@@ -6,12 +6,10 @@ use tahuc_span::{FileId, Span};
 use crate::nodes::{
     Expression,
     ast::{AstNode, NodeId},
-    declarations::{
-        Class, Declaration, DeclarationKind, ExternFn, Function, ParameterKind,
-    },
-    expressions::{Argument, ExpressionKind, FunctionCall},
+    declarations::{Class, Declaration, DeclarationKind, ExternFn, Function, ParameterKind},
+    expressions::{Argument, ExpressionKind, FunctionCall, TemplatePart},
     op::{AssignmentOp, BinaryOp, UnaryOp},
-    statements::{Statement, StatementKind, Variable},
+    statements::{IfStatement, Statement, StatementKind, Variable, WhileStatement},
 };
 
 pub mod nodes;
@@ -23,17 +21,19 @@ pub enum Type {
     Int,
     Double,
     Boolean,
-    Null,
     Void,
-    
+    Array(Box<Type>),
+    Nullable(Box<Type>),
     Pointer(Box<Type>),
+
     // placeholder
     Inferred,
     // for error
     Error,
 
-
     Function(Vec<Type>, Box<Type>),
+
+    // for custom type
     Named(String),
 }
 
@@ -50,9 +50,10 @@ impl fmt::Display for Type {
             Type::Int => write!(f, "Int"),
             Type::Double => write!(f, "Double"),
             Type::Boolean => write!(f, "Boolean"),
-            Type::Null => write!(f, "Null"),
             Type::Void => write!(f, "Void"),
-            Type::Pointer(type_) => write!(f, "{}*", type_),
+            Type::Array(ty) => write!(f, "[{}]", ty),
+            Type::Nullable(ty) => write!(f, "{}?", ty),
+            Type::Pointer(type_) => write!(f, "*{}", type_),
             Type::Inferred => write!(f, "Inferred"),
             Type::Error => write!(f, "Error"),
             Type::Function(params, type_) => write!(
@@ -154,6 +155,26 @@ impl AstBuilder {
         )
     }
 
+    pub fn build_assigment_statement(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        left: Expression,
+        op: AssignmentOp,
+        right: Expression,
+    ) -> Statement {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            StatementKind::Assignment {
+                left: Box::new(left),
+                op: op,
+                right: Box::new(right),
+            },
+        )
+    }
+
     pub fn expression_statement(
         &mut self,
         span: Span,
@@ -174,6 +195,22 @@ impl AstBuilder {
             span,
             file_id,
             ExpressionKind::Literal(literal),
+        )
+    }
+
+    pub fn template_string(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        parts: Vec<TemplatePart>,
+    ) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::TemplateString {
+                parts: parts
+            },
         )
     }
 
@@ -308,25 +345,41 @@ impl AstBuilder {
         )
     }
 
-    pub fn assignment(
+    pub fn build_array_literal(
         &mut self,
         span: Span,
         file_id: FileId,
-        left: Expression,
-        op: AssignmentOp,
-        right: Expression,
+        expressions: Vec<Expression>,
     ) -> Expression {
         AstNode::new(
             self.next_id(),
             span,
             file_id,
-            ExpressionKind::Assignment {
-                left: Box::new(left),
-                op: op,
-                right: Box::new(right),
+            ExpressionKind::ArrayLiteral {
+                elements: expressions,
             },
         )
     }
+
+    // pub fn assignment(
+    //     &mut self,
+    //     span: Span,
+    //     file_id: FileId,
+    //     left: Expression,
+    //     op: AssignmentOp,
+    //     right: Expression,
+    // ) -> Expression {
+    //     AstNode::new(
+    //         self.next_id(),
+    //         span,
+    //         file_id,
+    //         ExpressionKind::Assignment {
+    //             left: Box::new(left),
+    //             op: op,
+    //             right: Box::new(right),
+    //         },
+    //     )
+    // }
 
     pub fn return_statement(
         &mut self,
@@ -340,5 +393,36 @@ impl AstBuilder {
             file_id,
             StatementKind::Return(expression),
         )
+    }
+
+    pub fn if_statement(&mut self, span: Span, file_id: FileId, if_stmt: IfStatement) -> Statement {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            StatementKind::IfStatement(if_stmt),
+        )
+    }
+
+    pub fn while_statement(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        while_stmt: WhileStatement,
+    ) -> Statement {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            StatementKind::WhileStatement(while_stmt),
+        )
+    }
+
+    pub fn build_continue_statement(&mut self, span: Span, file_id: FileId) -> Statement {
+        AstNode::new(self.next_id(), span, file_id, StatementKind::Continue)
+    }
+
+    pub fn build_break_statement(&mut self, span: Span, file_id: FileId) -> Statement {
+        AstNode::new(self.next_id(), span, file_id, StatementKind::Break)
     }
 }

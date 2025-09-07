@@ -1,13 +1,16 @@
 use tahuc_lexer::token::Literal;
 use tahuc_span::Span;
 
-use crate::nodes::{ast::AstNode, op::{AssignmentOp, BinaryOp, UnaryOp}};
+use crate::nodes::{ast::AstNode, op::{BinaryOp, UnaryOp}};
 
 pub type Expression = AstNode<ExpressionKind>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExpressionKind {
     Literal(Literal),
+    TemplateString {
+        parts: Vec<TemplatePart>
+    },
 
     Identifier(String),
 
@@ -27,6 +30,9 @@ pub enum ExpressionKind {
         op: UnaryOp,
         operand: Box<Expression>,
     },
+    ArrayLiteral {
+        elements: Vec<Expression>,
+    },
     ArrayAccess {
         array: Box<Expression>,
         index: Box<Expression>,
@@ -37,12 +43,12 @@ pub enum ExpressionKind {
     },
     FunctionCall(Box<FunctionCall>),
     Grouping(Box<Expression>),
+}
 
-    Assignment {
-        left: Box<Expression>,
-        op: AssignmentOp,
-        right: Box<Expression>,
-    },
+#[derive(Debug, Clone, PartialEq)]
+pub enum TemplatePart {
+    Text(String),
+    Expression(Expression),
 }
 
 #[derive(Debug, Clone, PartialEq)]

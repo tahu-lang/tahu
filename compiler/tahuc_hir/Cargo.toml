@@ -1,0 +1,9 @@
+[package]
+name = "tahuc_hir"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tahuc_lexer = { path = "../tahuc_lexer" }
+tahuc_ast = { path = "../tahuc_ast" }
+tahuc_semantic = { path = "../tahuc_semantic" }

@@ -4,7 +4,7 @@ use tahuc_ast::{
         Expression,
         declarations::{Declaration, DeclarationKind},
         expressions::{Argument, ExpressionKind},
-        statements::{Statement, StatementKind, Variable},
+        statements::{Block, ElseBranch, IfStatement, Statement, StatementKind, Variable},
     },
 };
 
@@ -97,6 +97,26 @@ impl<'a> SymbolResolution<'a> {
         }
     }
 
+    fn resolve_block(&mut self, block: &Block) {
+        self.db.enter_scope();
+        for statement in &block.statements {
+            self.resolve_statement(statement);
+        }
+        self.db.exit_scope();
+    }
+
+    fn resolve_if_statement(&mut self, if_stmt: &IfStatement) {
+        self.resolve_expression(&if_stmt.condition);
+        self.resolve_block(&if_stmt.then_branch);
+
+        if let Some(else_branch) = &if_stmt.else_branch {
+            match &else_branch {
+                ElseBranch::Block(block) => self.resolve_block(block),
+                ElseBranch::If(else_if_stmt) => self.resolve_if_statement(else_if_stmt),
+            }
+        }
+    }
+
     fn resolve_statement(&mut self, statement: &Statement) {
         match &statement.kind {
             StatementKind::Variable(var) => {
@@ -119,16 +139,18 @@ impl<'a> SymbolResolution<'a> {
                     self.resolve_expression(value);
                 }
             }
-            StatementKind::Block(block) => {
-                self.db.enter_scope();
-                for statement in &block.statements {
-                    self.resolve_statement(statement);
-                }
-                self.db.exit_scope();
-            }
+            // StatementKind::Block(block) => self.resolve_block(block),
             StatementKind::Expression(expr) => {
                 self.resolve_expression(expr);
             }
+            StatementKind::IfStatement(if_stmt) => {
+                self.resolve_if_statement(if_stmt);
+            }
+            StatementKind::WhileStatement(while_stmt) => {
+                self.resolve_expression(&while_stmt.condition);
+                self.resolve_block(&while_stmt.body);
+            }
+            _ => {}
         }
     }
 
@@ -142,10 +164,10 @@ impl<'a> SymbolResolution<'a> {
                     });
                 }
             }
-            ExpressionKind::Assignment { left, right, .. } => {
-                self.resolve_expression(left);
-                self.resolve_expression(right);
-            }
+            // ExpressionKind::Assignment { left, right, .. } => {
+            //     self.resolve_expression(left);
+            //     self.resolve_expression(right);
+            // }
             ExpressionKind::Binary { left, right, .. } => {
                 self.resolve_expression(left);
                 self.resolve_expression(right);

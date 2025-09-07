@@ -72,7 +72,16 @@ impl<'a> Parser<'a> {
         // 'var a: int' or 'var a'
         let type_annotation = if self.check(TokenKind::Colon) {
             self.advance();
-            self.parse_type()?
+            let ty = self.parse_type()?;
+
+            // handle nullable 
+            // `string?`, `int?`
+            if self.check(TokenKind::Question) {
+                self.advance();
+                Type::Nullable(Box::new(ty))
+            } else {
+                ty
+            }
         } else {
             Type::Inferred
         };
@@ -89,14 +98,14 @@ impl<'a> Parser<'a> {
         let end_token = self.peek().clone();
         let span = self.make_span(start_token, end_token);
 
-        let variable = Variable::new(
+        let variable = Variable {
             visibility,
             name,
-            type_annotation,
+            variable_type: type_annotation,
             initializer,
             is_mutable,
             span,
-        );
+        };
 
         Ok(variable)
     }

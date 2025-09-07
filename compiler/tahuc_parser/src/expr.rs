@@ -1,7 +1,5 @@
 use tahuc_ast::nodes::{
-    Expression,
-    expressions::Argument,
-    op::{AssignmentOp, BinaryOp, UnaryOp},
+    expressions::{Argument, TemplatePart}, op::{AssignmentOp, BinaryOp, UnaryOp}, Expression
 };
 use tahuc_lexer::token::TokenKind;
 
@@ -9,42 +7,43 @@ use crate::{Parser, error::ParserError};
 
 impl<'a> Parser<'a> {
     pub(crate) fn expression(&mut self) -> Result<Expression, ParserError> {
-        self.parse_expression_assigment()
+        // self.parse_expression_assigment()
+        self.expression_ternary()
     }
 
-    fn parse_expression_assigment(&mut self) -> Result<Expression, ParserError> {
-        let mut left = self.expression_ternary()?;
+    // fn parse_expression_assigment(&mut self) -> Result<Expression, ParserError> {
+    //     let mut left = self.expression_ternary()?;
 
-        while !self.is_at_end() && !self.is_expression_terminator() {
-            let op = match self.current_token().kind {
-                TokenKind::Assign => AssignmentOp::Assign,
-                // Arithmetic compound assignments
-                TokenKind::AddAssign   => AssignmentOp::AddAssign,
-                TokenKind::SubAssign   => AssignmentOp::SubAssign,
-                TokenKind::MulAssign   => AssignmentOp::MulAssign,
-                TokenKind::DivAssign   => AssignmentOp::DivAssign,
-                TokenKind::RemAssign   => AssignmentOp::RemAssign,
-                // Bitwise compound assignments
-                TokenKind::AndAssign   => AssignmentOp::BitAndAssign,
-                TokenKind::OrAssign    => AssignmentOp::BitOrAssign,
-                TokenKind::XorAssign   => AssignmentOp::BitXorAssign,
-                // Shift compound assignments
-                TokenKind::ShlAssign   => AssignmentOp::ShlAssign,
-                TokenKind::ShrAssign   => AssignmentOp::ShrAssign,
-                _ => break,
-            };
+    //     while !self.is_at_end() && !self.is_expression_terminator() {
+    //         let op = match self.current_token().kind {
+    //             TokenKind::Assign => AssignmentOp::Assign,
+    //             // Arithmetic compound assignments
+    //             TokenKind::AddAssign   => AssignmentOp::AddAssign,
+    //             TokenKind::SubAssign   => AssignmentOp::SubAssign,
+    //             TokenKind::MulAssign   => AssignmentOp::MulAssign,
+    //             TokenKind::DivAssign   => AssignmentOp::DivAssign,
+    //             TokenKind::RemAssign   => AssignmentOp::RemAssign,
+    //             // Bitwise compound assignments
+    //             TokenKind::AndAssign   => AssignmentOp::BitAndAssign,
+    //             TokenKind::OrAssign    => AssignmentOp::BitOrAssign,
+    //             TokenKind::XorAssign   => AssignmentOp::BitXorAssign,
+    //             // Shift compound assignments
+    //             TokenKind::ShlAssign   => AssignmentOp::ShlAssign,
+    //             TokenKind::ShrAssign   => AssignmentOp::ShrAssign,
+    //             _ => break,
+    //         };
 
-            let left_span = left.span;
-            self.advance();
-            // Right-associative: recurse with min_prec to allow chaining
-            let right = self.parse_expression_assigment()?;
+    //         let left_span = left.span;
+    //         self.advance();
+    //         // Right-associative: recurse with min_prec to allow chaining
+    //         let right = self.parse_expression_assigment()?;
 
-            let span = self.make_span_fspan(left_span, right.span);
-            left = self.builder.assignment(span, self.file_id, left.into(), op, right)
-        }
+    //         let span = self.make_span_fspan(left_span, right.span);
+    //         left = self.builder.assignment(span, self.file_id, left.into(), op, right)
+    //     }
 
-        Ok(left)
-    }
+    //     Ok(left)
+    // }
 
     fn expression_ternary(&mut self) -> Result<Expression, ParserError> {
         let mut expr = self.parse_binary_expression(0)?;
@@ -309,6 +308,30 @@ impl<'a> Parser<'a> {
                 let file_id = self.file_id;
                 Ok(self.builder.literal(token.span, file_id, literal))
             }
+            TokenKind::TemplateString { parts } => {
+                let token = self.advance().clone();
+
+                let mut template = Vec::new(); 
+                for part in parts {
+                    match part {
+                        tahuc_lexer::token::TemplatePart::EscapedBrace(c) => template.push(TemplatePart::Text(c.to_string())),
+                        tahuc_lexer::token::TemplatePart::Expression { tokens, source } => {
+                            let result = Parser::parse_expression(self.file_id, tokens, self.reporter);
+                            match result {
+                                Ok(expr) => {
+                                    template.push(TemplatePart::Expression(expr));
+                                }
+                                Err(err) => {
+                                    println!("err template string: {:?}", err.to_diagnostic());
+                                }
+                            }
+                        }
+                        tahuc_lexer::token::TemplatePart::Text(s) => template.push(TemplatePart::Text(s.to_string())),
+                    }
+                }
+
+                Ok(self.builder.template_string(token.span, self.file_id, template))
+            }
             TokenKind::Identifier => {
                 let token = self.advance().clone();
                 let file_id = self.file_id;
@@ -324,6 +347,20 @@ impl<'a> Parser<'a> {
                 let expr = self.expression()?;
                 self.consume(TokenKind::RightParen, "Expected ')' after expression")?;
                 Ok(self.builder.grouping(expr.span, self.file_id, expr))
+            }
+            TokenKind::LeftBracket => {
+                let token = self.advance().clone();
+                let mut expr = Vec::new();
+                while !self.is_at_end() && !self.check(TokenKind::RightBracket) {
+                    if self.check(TokenKind::Comma) {
+                        self.advance();
+                    }
+                    expr.push(self.expression()?);
+                }
+                self.consume(TokenKind::RightBracket, "Expected ']' after expression")?;
+                let end_span = self.get_last_span();
+                let span = self.make_span_fspan(token.span, end_span);
+                Ok(self.builder.build_array_literal(span, self.file_id, expr))
             }
             TokenKind::RightParen => {
                 let token = self.current_token().clone();

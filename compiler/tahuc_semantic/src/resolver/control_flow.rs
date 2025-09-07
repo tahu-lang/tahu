@@ -144,21 +144,22 @@ impl<'a> ControlFlowAnalyzer<'a> {
                 true // This path returns
             }
 
-            StatementKind::Block(block) => {
-                // Save current state for block scope
-                let saved_vars = self.assigned_vars.clone();
-                let saved_unreachable = self.is_unreachable;
+            // StatementKind::Block(block) => {
+            //     // Save current state for block scope
+            //     let saved_vars = self.assigned_vars.clone();
+            //     let saved_unreachable = self.is_unreachable;
 
-                self.db.enter_scope();
-                let has_return = self.analyze_block(block);
-                self.db.exit_scope();
+            //     self.db.enter_scope();
+            //     let has_return = self.analyze_block(block);
+            //     self.db.exit_scope();
 
-                // Restore state after block
-                self.assigned_vars = saved_vars;
-                self.is_unreachable = saved_unreachable;
+            //     // Restore state after block
+            //     self.assigned_vars = saved_vars;
+            //     self.is_unreachable = saved_unreachable;
 
-                has_return
-            }
+            //     has_return
+            // }
+            _ => false,
         }
     }
 
@@ -179,38 +180,38 @@ impl<'a> ControlFlowAnalyzer<'a> {
                 }
             }
 
-            ExpressionKind::Assignment { left, right, .. } => {
-                // Analyze right side first
-                self.analyze_expression(right);
+            // ExpressionKind::Assignment { left, right, .. } => {
+            //     // Analyze right side first
+            //     self.analyze_expression(right);
 
-                // Handle assignment to identifier
-                if let ExpressionKind::Identifier(var_name) = &left.kind {
-                    // Check if variable exists
-                    if let Some(symbol) = self.db.lookup_symbol(var_name.clone()) {
-                        if let Some(var_symbol) = symbol.get_variable() {
-                            // Check mutability
-                            if !var_symbol.name.is_empty() {
-                                // placeholder for is_mutable check
-                                self.assigned_vars.insert(var_name.clone(), true);
-                            } else {
-                                // println!(
-                                //     "Error: Cannot assign to immutable variable '{}'",
-                                //     var_name
-                                // );
-                                self.db.report_error(SemanticError::CannotAssignImmutable {
-                                    name: var_name.clone(),
-                                    span: left.span.merge(right.span),
-                                });
-                            }
-                        }
-                    } 
-                    // else {
-                    //     // println!("Error: Cannot assign to undefined variable '{}'", var_name);
-                    // }
-                }
+            //     // Handle assignment to identifier
+            //     if let ExpressionKind::Identifier(var_name) = &left.kind {
+            //         // Check if variable exists
+            //         if let Some(symbol) = self.db.lookup_symbol(var_name.clone()) {
+            //             if let Some(var_symbol) = symbol.get_variable() {
+            //                 // Check mutability
+            //                 if !var_symbol.name.is_empty() {
+            //                     // placeholder for is_mutable check
+            //                     self.assigned_vars.insert(var_name.clone(), true);
+            //                 } else {
+            //                     // println!(
+            //                     //     "Error: Cannot assign to immutable variable '{}'",
+            //                     //     var_name
+            //                     // );
+            //                     self.db.report_error(SemanticError::CannotAssignImmutable {
+            //                         name: var_name.clone(),
+            //                         span: left.span.merge(right.span),
+            //                     });
+            //                 }
+            //             }
+            //         } 
+            //         // else {
+            //         //     // println!("Error: Cannot assign to undefined variable '{}'", var_name);
+            //         // }
+            //     }
 
-                self.analyze_expression(left);
-            }
+                // self.analyze_expression(left);
+            // }
 
             ExpressionKind::Binary { left, right, .. } => {
                 self.analyze_expression(left);
@@ -275,6 +276,7 @@ impl<'a> ControlFlowAnalyzer<'a> {
             ExpressionKind::Literal(_) => {
                 // Literals don't need analysis
             }
+            _ => {}
         }
     }
 

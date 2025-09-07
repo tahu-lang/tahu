@@ -1,15 +1,25 @@
 use tahuc_span::Span;
 
-use crate::{nodes::{ast::AstNode, declarations::Visibility, Expression}, Type};
+use crate::{nodes::{ast::AstNode, declarations::Visibility, op::AssignmentOp, Expression}, Type};
 
 pub type Statement = AstNode<StatementKind>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StatementKind {
     Expression(Expression),
-    Block(Block),
     Variable(Variable),
+    Assignment {
+        left: Box<Expression>,
+        op: AssignmentOp,
+        right: Box<Expression>,
+    },
     Return(Option<Expression>),
+    IfStatement(IfStatement),
+    WhileStatement(WhileStatement),
+    ForStatement(ForStatement),
+    ForInStatement(ForInStatement),
+    Continue,
+    Break,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,15 +38,40 @@ pub struct Variable {
     pub span: Span,
 }
 
-impl Variable {
-    pub fn new(visibility: Visibility, name: String, variable_type: Type, initializer: Option<Expression>, is_mutable: bool, span: Span) -> Self {
-        Self {
-            visibility,
-            name,
-            variable_type,
-            initializer,
-            is_mutable,
-            span,
-        }
-    }
+#[derive(Debug, Clone, PartialEq)]
+pub struct IfStatement {
+    pub condition: Expression,
+    pub then_branch: Block,
+    pub else_branch: Option<ElseBranch>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ElseBranch {
+    Block(Block),
+    If(Box<IfStatement>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WhileStatement {
+    pub condition: Expression,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForStatement {
+    pub initializer: Box<Option<Statement>>,
+    pub condition: Option<Expression>,
+    pub increment: Option<Expression>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForInStatement {
+    pub identifier: String,
+    pub collection: Expression,
+    pub body: Block,
+    pub span: Span,
 }

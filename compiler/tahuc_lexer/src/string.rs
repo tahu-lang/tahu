@@ -23,11 +23,27 @@ impl<'a> Lexer<'a> {
                     self.advance();
                 }
                 '\\' => {
-                    content.push(ch);
+                    // PERBAIKAN: Proses escape sequence di sini juga
                     self.advance();
                     if let Some(escaped) = self.current_char {
-                        content.push(escaped);
+                        match escaped {
+                            'n' => content.push('\n'),
+                            'r' => content.push('\r'),
+                            't' => content.push('\t'),
+                            '\\' => content.push('\\'),
+                            '"' => content.push('"'),
+                            '\'' => content.push('\''),
+                            '0' => content.push('\0'),
+                            '{' => content.push('{'), // Escape brace di template
+                            '}' => content.push('}'), // Escape brace di template
+                            _ => {
+                                content.push('\\');
+                                content.push(escaped);
+                            }
+                        }
                         self.advance();
+                    } else {
+                        content.push('\\');
                     }
                 }
                 _ => {
@@ -40,22 +56,17 @@ impl<'a> Lexer<'a> {
         if self.current_char.is_none() {
             let end_pos = self.position;
             let span = Span::new(start_pos, end_pos, self.file_id);
-            return Err(LexerError::UnterminatedString { span: span });
+            return Err(LexerError::UnterminatedString { span });
         }
 
         let end_pos = self.position;
         let span = Span::new(start_pos, end_pos, self.file_id);
-        let lexeme = format!("\"{}\"", content);
-
-        if has_interpolation {
-        }
+        let lexeme = content.clone();
 
         if has_interpolation {
             match self.parse_template_string(&content) {
                 Ok(parts) => Ok(Token::new(
-                    TokenKind::TemplateString { 
-                        parts,
-                    },
+                    TokenKind::TemplateString { parts },
                     span,
                     self.file_id,
                     lexeme,
@@ -83,7 +94,7 @@ impl<'a> Lexer<'a> {
                     if chars.peek() == Some(&'{') {
                         // Escaped brace {{
                         chars.next();
-                        parts.push(TemplatePart::EscapedBrace('{'));
+                        current_text.push('{'); 
                     } else {
                         // Start of interpolation
                         if !current_text.is_empty() {
@@ -93,7 +104,6 @@ impl<'a> Lexer<'a> {
                         
                         let expr = self.extract_interpolation_expression(&mut chars)?;
                         parts.push(TemplatePart::Expression {
-                            // tokens: Vec::new(), // TODO: Tokenize the expression
                             tokens: self.tokenize_template_expression(&expr)?,
                             source: expr,
                         });
@@ -103,24 +113,9 @@ impl<'a> Lexer<'a> {
                     if chars.peek() == Some(&'}') {
                         // Escaped brace }}
                         chars.next();
-                        parts.push(TemplatePart::EscapedBrace('}'));
+                        current_text.push('}'); 
                     } else {
-                        // Regular character
                         current_text.push(ch);
-                    }
-                }
-                '\\' => {
-                    if let Some(escaped) = chars.next() {
-                        match escaped {
-                            'n' => current_text.push('\n'),
-                            'r' => current_text.push('\r'),
-                            't' => current_text.push('\t'),
-                            '\\' => current_text.push('\\'),
-                            '"' => current_text.push('"'),
-                            '\'' => current_text.push('\''),
-                            '0' => current_text.push('\0'),
-                            _ => return Err(LexerError::InvalidEscapeSequence(escaped)),
-                        }
                     }
                 }
                 _ => current_text.push(ch),
@@ -133,13 +128,39 @@ impl<'a> Lexer<'a> {
         
         Ok(parts)
     }
-                        
+
+    fn process_escape_sequence(&mut self) -> Result<char, LexerError> {
+        if let Some(escaped) = self.current_char {
+            match escaped {
+                'n' => Ok('\n'),
+                'r' => Ok('\r'),
+                't' => Ok('\t'),
+                '\\' => Ok('\\'),
+                '"' => Ok('"'),
+                '\'' => Ok('\''),
+                '0' => Ok('\0'),
+                'u' => {
+                    // Unicode escape \u{XXXX}
+                    self.advance();
+                    if self.current_char == Some('{') {
+                        self.advance();
+                        self.read_unicode_escape()
+                    } else {
+                        Err(LexerError::InvalidUnicodeEscape)
+                    }
+                }
+                _ => Err(LexerError::InvalidEscapeSequence(escaped)),
+            }
+        } else {
+            Err(LexerError::UnexpectedEof)
+        }
+    }
+
     pub(crate) fn read_single_quote_string(&mut self) -> Result<Token, LexerError> {
         let start_pos = self.position;
         self.advance(); // Skip opening quote
         
         let mut content = String::new();
-        // let mut char_count = 0;
         
         while let Some(ch) = self.current_char {
             match ch {
@@ -149,30 +170,10 @@ impl<'a> Lexer<'a> {
                 }
                 '\\' => {
                     self.advance();
-                    if let Some(escaped) = self.current_char {
-                        match escaped {
-                            'n' => content.push('\n'),
-                            'r' => content.push('\r'),
-                            't' => content.push('\t'),
-                            '\\' => content.push('\\'),
-                            '\'' => content.push('\''),
-                            '"' => content.push('"'),
-                            '0' => content.push('\0'),
-                            'u' => {
-                                // Unicode escape \u{XXXX}
-                                self.advance();
-                                if self.current_char == Some('{') {
-                                    self.advance();
-                                    let unicode_char = self.read_unicode_escape()?;
-                                    content.push(unicode_char);
-                                } else {
-                                    return Err(LexerError::InvalidUnicodeEscape);
-                                }
-                            }
-                            _ => return Err(LexerError::InvalidEscapeSequence(escaped)),
-                        }
-                        self.advance();
-                    }
+                    // PERBAIKAN: Gunakan helper function
+                    let escaped_char = self.process_escape_sequence()?;
+                    content.push(escaped_char);
+                    self.advance();
                 }
                 '\n' | '\r' => {
                     let span = Span::new(start_pos, self.position, self.file_id);
@@ -180,7 +181,6 @@ impl<'a> Lexer<'a> {
                 }
                 _ => {
                     content.push(ch);
-                    // char_count += 1;
                     self.advance();
                 }
             }
@@ -191,11 +191,9 @@ impl<'a> Lexer<'a> {
             return Err(LexerError::UnterminatedString { span });
         }
         
-        // Single quotes typically used for single characters in many languages
-        // But we'll allow strings of any length
         let end_pos = self.position;
         let span = Span::new(start_pos, end_pos, self.file_id);
-        let lexeme = format!("'{}'", content);
+        let lexeme = content.clone();
         
         Ok(Token::new(
             TokenKind::Literal(Literal::String(content)),
@@ -208,7 +206,6 @@ impl<'a> Lexer<'a> {
     fn read_unicode_escape(&mut self) -> Result<char, LexerError> {
         let mut hex_digits = String::new();
         
-        // Read up to 6 hex digits
         while hex_digits.len() < 6 {
             match self.current_char {
                 Some('}') => break,
@@ -224,7 +221,7 @@ impl<'a> Lexer<'a> {
         if self.current_char != Some('}') {
             return Err(LexerError::InvalidUnicodeEscape);
         }
-        self.advance(); // Skip '}'
+        self.advance();
         
         if hex_digits.is_empty() {
             return Err(LexerError::InvalidUnicodeEscape);
@@ -237,20 +234,14 @@ impl<'a> Lexer<'a> {
     }
     
     fn tokenize_template_expression(&mut self, expr: &str) -> Result<Vec<Token>, LexerError> {
-        // Create a temporary diagnostic reporter for the sub-lexer
         let mut temp_reporter = DiagnosticReporter::new();
-        
-        // Create sub-lexer for the expression
         let mut sub_lexer = Lexer::new(expr.trim().to_string(), self.file_id, &mut temp_reporter);
         let result = sub_lexer.tokenize();
         
-        // If there are errors in the expression, report them
         if temp_reporter.has_errors() {
-            // We could merge the errors, but for now just return a general error
             return Err(LexerError::InvalidTemplateExpression);
         }
         
-        // Filter out EOF token
         let tokens = result.tokens
             .into_iter()
             .filter(|token| !matches!(token.kind, TokenKind::Eof))
