@@ -1,0 +1,8 @@
+[package]
+name = "tahuc_mir"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tahuc_ast = { path = "../tahuc_ast" }
+tahuc_hir = { path = "../tahuc_hir" }
