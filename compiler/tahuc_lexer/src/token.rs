@@ -44,6 +44,7 @@ pub enum TokenKind {
     Return,
     Match,
     // data type
+    Char,
     String,
     Integer,
     Double,
@@ -142,6 +143,7 @@ pub enum TemplatePart {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     String(String),
+    Char(char),
     Integer(i64),
     Double(f64),
     Boolean(bool),
@@ -181,6 +183,7 @@ impl TokenKind {
 
             // data type
             "string" => TokenKind::String,
+            "cahr" => TokenKind::Char,
             "integer" => TokenKind::Integer,
             "double" => TokenKind::Double,
             "boolean" => TokenKind::Boolean,
@@ -201,7 +204,7 @@ impl TokenKind {
             // literal
             "true" => TokenKind::Literal(Literal::Boolean(true)),
             "false" => TokenKind::Literal(Literal::Boolean(false)),
-            "null" => TokenKind::Literal(Literal::String("null".to_string())),
+            "null" => TokenKind::Literal(Literal::Null),
             _ => TokenKind::Identifier,
         }
     }

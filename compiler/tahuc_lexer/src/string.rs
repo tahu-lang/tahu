@@ -34,8 +34,8 @@ impl<'a> Lexer<'a> {
                             '"' => content.push('"'),
                             '\'' => content.push('\''),
                             '0' => content.push('\0'),
-                            '{' => content.push('{'), // Escape brace di template
-                            '}' => content.push('}'), // Escape brace di template
+                            '{' => content.push('{'), // Escape brace
+                            '}' => content.push('}'), // Escape brace
                             _ => {
                                 content.push('\\');
                                 content.push(escaped);
@@ -155,51 +155,55 @@ impl<'a> Lexer<'a> {
             Err(LexerError::UnexpectedEof)
         }
     }
-
-    pub(crate) fn read_single_quote_string(&mut self) -> Result<Token, LexerError> {
+    
+    pub(crate) fn read_char_literal(&mut self) -> Result<Token, LexerError> {
         let start_pos = self.position;
-        self.advance(); // Skip opening quote
-        
-        let mut content = String::new();
-        
-        while let Some(ch) = self.current_char {
-            match ch {
-                '\'' => {
-                    self.advance();
-                    break;
-                }
-                '\\' => {
-                    self.advance();
-                    // PERBAIKAN: Gunakan helper function
-                    let escaped_char = self.process_escape_sequence()?;
-                    content.push(escaped_char);
-                    self.advance();
-                }
-                '\n' | '\r' => {
-                    let span = Span::new(start_pos, self.position, self.file_id);
-                    return Err(LexerError::UnterminatedString { span });
-                }
-                _ => {
-                    content.push(ch);
-                    self.advance();
+        self.advance(); // skip opening '
+
+        let ch = match self.current_char {
+            Some('\\') => {
+                self.advance(); // skip '\'
+                let res = self.process_escape_sequence();
+                match res {
+                    Ok(ch) => {
+                        self.advance();
+                        ch
+                    },
+                    Err(err) => return Err(err),
                 }
             }
-        }
-        
-        if self.current_char.is_none() {
+            Some(ch) => {
+                let c = ch;
+                self.advance();
+                c
+            }
+            None => {
+                let span = Span::new(start_pos, self.position, self.file_id);
+                return Err(LexerError::UnterminatedChar { span });
+            }
+        };
+
+        // Cek apakah ada karakter tambahan sebelum penutup '
+        if let Some(next_ch) = self.current_char {
+            if next_ch != '\'' {
+                let span = Span::new(start_pos, self.position, self.file_id);
+                return Err(LexerError::TooManyCharsInCharLiteral { span });
+            }
+        } else {
             let span = Span::new(start_pos, self.position, self.file_id);
-            return Err(LexerError::UnterminatedString { span });
+            return Err(LexerError::UnterminatedChar { span });
         }
-        
+
+        self.advance(); // skip closing '
+
         let end_pos = self.position;
         let span = Span::new(start_pos, end_pos, self.file_id);
-        let lexeme = content.clone();
-        
+
         Ok(Token::new(
-            TokenKind::Literal(Literal::String(content)),
+            TokenKind::Literal(Literal::Char(ch)),
             span,
             self.file_id,
-            lexeme,
+            ch.to_string(),
         ))
     }
     

@@ -104,7 +104,8 @@ impl<'a> Lexer<'a> {
             Some(ch) if ch.is_ascii_digit() => self.read_number(),
             Some(ch) if ch.is_ascii_alphabetic() || ch == '_' => self.read_identifier(),
             Some('"') => self.read_string_or_template(),
-            Some('\'') => self.read_single_quote_string(),
+            // Some('\'') => self.read_single_quote_string(),
+            Some('\'') => self.read_char_literal(),
 
             // Single character delimiters
             Some('(') => {
