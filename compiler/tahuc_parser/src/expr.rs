@@ -1,5 +1,5 @@
 use tahuc_ast::nodes::{
-    expressions::{Argument, TemplatePart}, op::{AssignmentOp, BinaryOp, UnaryOp}, Expression
+    expressions::{Argument, TemplatePart}, op::{BinaryOp, UnaryOp}, Expression
 };
 use tahuc_lexer::token::TokenKind;
 
@@ -7,43 +7,8 @@ use crate::{Parser, error::ParserError};
 
 impl<'a> Parser<'a> {
     pub(crate) fn expression(&mut self) -> Result<Expression, ParserError> {
-        // self.parse_expression_assigment()
         self.expression_ternary()
     }
-
-    // fn parse_expression_assigment(&mut self) -> Result<Expression, ParserError> {
-    //     let mut left = self.expression_ternary()?;
-
-    //     while !self.is_at_end() && !self.is_expression_terminator() {
-    //         let op = match self.current_token().kind {
-    //             TokenKind::Assign => AssignmentOp::Assign,
-    //             // Arithmetic compound assignments
-    //             TokenKind::AddAssign   => AssignmentOp::AddAssign,
-    //             TokenKind::SubAssign   => AssignmentOp::SubAssign,
-    //             TokenKind::MulAssign   => AssignmentOp::MulAssign,
-    //             TokenKind::DivAssign   => AssignmentOp::DivAssign,
-    //             TokenKind::RemAssign   => AssignmentOp::RemAssign,
-    //             // Bitwise compound assignments
-    //             TokenKind::AndAssign   => AssignmentOp::BitAndAssign,
-    //             TokenKind::OrAssign    => AssignmentOp::BitOrAssign,
-    //             TokenKind::XorAssign   => AssignmentOp::BitXorAssign,
-    //             // Shift compound assignments
-    //             TokenKind::ShlAssign   => AssignmentOp::ShlAssign,
-    //             TokenKind::ShrAssign   => AssignmentOp::ShrAssign,
-    //             _ => break,
-    //         };
-
-    //         let left_span = left.span;
-    //         self.advance();
-    //         // Right-associative: recurse with min_prec to allow chaining
-    //         let right = self.parse_expression_assigment()?;
-
-    //         let span = self.make_span_fspan(left_span, right.span);
-    //         left = self.builder.assignment(span, self.file_id, left.into(), op, right)
-    //     }
-
-    //     Ok(left)
-    // }
 
     fn expression_ternary(&mut self) -> Result<Expression, ParserError> {
         let mut expr = self.parse_binary_expression(0)?;
@@ -175,7 +140,7 @@ impl<'a> Parser<'a> {
     }
 
     fn expression_postfix(&mut self) -> Result<Expression, ParserError> {
-        let mut expr = self.expression_function_call()?;
+        let mut expr = self.expression_primary()?;
 
         loop {
             match self.current_token().kind {
@@ -214,32 +179,30 @@ impl<'a> Parser<'a> {
                         });
                     }
                     let field_token = self.advance().clone();
-                    let field_name = field_token.lexeme;
+                    let field = field_token.lexeme;
                     let span = self.make_span_fspan(expr.span, field_token.span);
-                    expr = self.builder.member_access(span, self.file_id, expr, field_name);
+                    expr = self.builder.member_access(span, self.file_id, expr, field);
+                }
+                TokenKind::As => {
+                    self.advance();
+                    let type_expr = self.parse_type()?;
+                    let span = self.get_last_span();
+                    let span = self.make_span_fspan(expr.span, span);
+                    expr = self.builder.cast(span, self.file_id, type_expr, expr);
+                }
+                TokenKind::LeftParen => {
+                    self.advance();
+                    let mut arguments = Vec::new();
+                    if !self.check(TokenKind::RightParen) {
+                        arguments = self.parse_arguments()?;
+                    }
+                    self.consume(TokenKind::RightParen, "Expected ')' after arguments")?;
+                    let span = self.get_last_span();
+                    let span = self.make_span_fspan(expr.span, span);
+                    expr = self.builder.function_call(span, self.file_id, expr, arguments);
                 }
                 _ => break,
             }
-        }
-
-        Ok(expr)
-    }
-
-    fn expression_function_call(&mut self) -> Result<Expression, ParserError> {
-        let mut expr = self.expression_primary()?;
-
-        while self.check(TokenKind::LeftParen) {
-            self.advance();
-            let mut arguments = Vec::new();
-
-            if !self.check(TokenKind::RightParen) {
-                arguments = self.parse_arguments()?;
-            }
-
-            self.consume(TokenKind::RightParen, "Expected ')' after arguments")?;
-            let end_token = self.get_last_span();
-            let span = self.make_span_fspan(expr.span, end_token);
-            expr = self.builder.function_call(span, self.file_id, expr, arguments);
         }
 
         Ok(expr)
@@ -315,7 +278,7 @@ impl<'a> Parser<'a> {
                 for part in parts {
                     match part {
                         tahuc_lexer::token::TemplatePart::EscapedBrace(c) => template.push(TemplatePart::Text(c.to_string())),
-                        tahuc_lexer::token::TemplatePart::Expression { tokens, source } => {
+                        tahuc_lexer::token::TemplatePart::Expression { tokens, .. } => {
                             let result = Parser::parse_expression(self.file_id, tokens, self.reporter);
                             match result {
                                 Ok(expr) => {

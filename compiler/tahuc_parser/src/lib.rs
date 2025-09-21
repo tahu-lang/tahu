@@ -108,6 +108,17 @@ impl<'a> Parser<'a> {
 
     fn declaration(&mut self, visibility: Visibility) -> Result<Declaration, ParserError> {
         match self.peek().kind {
+            TokenKind::Import => {
+                self.advance();
+                if self.check(TokenKind::Identifier) {
+                    self.advance();
+                    if self.check(TokenKind::As) {
+                        self.advance();
+                        self.consume(TokenKind::Identifier, "Expected name for alias module import")?;
+                    }
+                }
+                self.declaration(visibility)
+            }
             TokenKind::Class => self.class_declaration(visibility),
             TokenKind::Fn => {
                 let func = self.function_declaration(visibility)?;
@@ -197,7 +208,12 @@ impl<'a> Parser<'a> {
 
         self.consume(TokenKind::Colon, "Expected ':' after parameter name")?;
 
-        let r#type = self.parse_type()?;
+        let mut r#type = self.parse_type()?;
+
+        if self.check(TokenKind::Question) {
+            self.advance();
+            r#type = Type::Nullable(Box::new(r#type));
+        }
 
         let mut default: Option<AstNode<ExpressionKind>> = None;
 
@@ -249,16 +265,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Result<Type, ParserError> {
-        let is_pointer = if self.current_token().kind == TokenKind::Mul {
-            self.advance();
-            true
-        } else {
-            false
-        };
-        let base_type = match &self.current_token().kind {
+        match &self.current_token().kind {
             TokenKind::Identifier => {
                 let type_name = self.advance().lexeme.clone();
                 Ok(match type_name.as_str() {
+                    "char" => Type::Char,
                     "string" => Type::String,
                     "int" => Type::Int,
                     "double" => Type::Double,
@@ -266,6 +277,10 @@ impl<'a> Parser<'a> {
                     "void" => Type::Void,
                     _ => Type::Named(type_name),
                 })
+            }
+            TokenKind::Char => {
+                self.advance();
+                Ok(Type::Char)
             }
             TokenKind::String => {
                 self.advance();
@@ -287,11 +302,23 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Type::Void)
             }
+            TokenKind::Mul => {
+                self.advance();
+                Ok(Type::Pointer(Box::new(self.parse_type()?)))
+            }
             TokenKind::LeftBracket => {
                 self.advance();
                 let ty = self.parse_type()?;
-                self.consume(TokenKind::RightBracket, "Expected ')' after type")?;
-                Ok(Type::Array(Box::new(ty)))
+                let size = if self.check(TokenKind::Semicolon) {
+                    self.advance();
+                    let size = self.parse_size_array()?;
+                    self.advance();
+                    size
+                } else {
+                    0
+                };
+                self.consume(TokenKind::RightBracket, "Expected ']' after type")?;
+                Ok(Type::Array { ty: Box::new(ty), size: size as usize })
             }
             _ => {
                 let token = self.current_token().clone();
@@ -301,12 +328,26 @@ impl<'a> Parser<'a> {
                     span: token.span,
                 })
             }
-        };
+        }
+    }
 
-        if is_pointer {
-            Ok(Type::Pointer(Box::new(base_type?)))
-        } else {
-            base_type
+    fn parse_size_array(&mut self) -> Result<i64, ParserError> {
+        match &self.peek().kind {
+            TokenKind::Literal(lit) => {
+                match lit {
+                    tahuc_lexer::token::Literal::Integer(i) => Ok(*i),
+                    _ => Err(ParserError::Expected {
+                        expected: format!("Expected integer literal for array size"),
+                        found: self.peek().lexeme.clone(),
+                        span: self.peek().span,
+                    })
+                }
+            }
+            _ => Err(ParserError::Expected {
+                expected: format!("Expected integer literal for array size"),
+                found: self.peek().lexeme.clone(),
+                span: self.peek().span,
+            })
         }
     }
 
