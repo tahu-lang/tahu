@@ -15,14 +15,19 @@ use crate::nodes::{
 pub mod nodes;
 pub mod printer;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     String,
+    Char,
     Int,
     Double,
     Boolean,
     Void,
-    Array(Box<Type>),
+    Null,
+    Array {
+        ty: Box<Type>,
+        size: usize
+    },
     Nullable(Box<Type>),
     Pointer(Box<Type>),
 
@@ -41,17 +46,26 @@ impl Type {
     pub fn is_inferred(&self) -> bool {
         matches!(self, Type::Inferred)
     }
+
+    pub fn is_nullable(&self) -> bool {
+        match self {
+            Type::Nullable(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Type::String => write!(f, "String"),
+            Type::Char => write!(f, "Char"),
             Type::Int => write!(f, "Int"),
             Type::Double => write!(f, "Double"),
             Type::Boolean => write!(f, "Boolean"),
             Type::Void => write!(f, "Void"),
-            Type::Array(ty) => write!(f, "[{}]", ty),
+            Type::Null => write!(f, "Null"),
+            Type::Array { ty, size } => write!(f, "[{} x {}]", size, ty),
             Type::Nullable(ty) => write!(f, "{}?", ty),
             Type::Pointer(type_) => write!(f, "*{}", type_),
             Type::Inferred => write!(f, "Inferred"),
@@ -208,8 +222,24 @@ impl AstBuilder {
             self.next_id(),
             span,
             file_id,
-            ExpressionKind::TemplateString {
-                parts: parts
+            ExpressionKind::TemplateString { parts: parts },
+        )
+    }
+
+    pub fn cast(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        ty: Type,
+        expression: Expression,
+    ) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::Cast {
+                ty: ty,
+                expression: Box::new(expression),
             },
         )
     }
@@ -360,26 +390,6 @@ impl AstBuilder {
             },
         )
     }
-
-    // pub fn assignment(
-    //     &mut self,
-    //     span: Span,
-    //     file_id: FileId,
-    //     left: Expression,
-    //     op: AssignmentOp,
-    //     right: Expression,
-    // ) -> Expression {
-    //     AstNode::new(
-    //         self.next_id(),
-    //         span,
-    //         file_id,
-    //         ExpressionKind::Assignment {
-    //             left: Box::new(left),
-    //             op: op,
-    //             right: Box::new(right),
-    //         },
-    //     )
-    // }
 
     pub fn return_statement(
         &mut self,

@@ -1,7 +1,7 @@
 use tahuc_lexer::token::Literal;
 use tahuc_span::Span;
 
-use crate::nodes::{ast::AstNode, op::{BinaryOp, UnaryOp}};
+use crate::{nodes::{ast::AstNode, op::{BinaryOp, UnaryOp}}, Type};
 
 pub type Expression = AstNode<ExpressionKind>;
 
@@ -43,6 +43,10 @@ pub enum ExpressionKind {
     },
     FunctionCall(Box<FunctionCall>),
     Grouping(Box<Expression>),
+    Cast {
+        ty: Type,
+        expression: Box<Expression>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
