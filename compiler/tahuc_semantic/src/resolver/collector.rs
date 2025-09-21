@@ -2,6 +2,7 @@ use tahuc_ast::{
     Module,
     nodes::declarations::{Declaration, DeclarationKind},
 };
+use tahuc_span::FileId;
 
 use crate::{
     database::Database, error::SemanticError, symbol::{FunctionSymbol, ParameterInfo, Symbol, SymbolKind, VariableSymbol}
@@ -9,17 +10,20 @@ use crate::{
 
 pub struct Collector<'a> {
     db: &'a mut Database,
+    file_id: FileId,
 }
 
 impl<'a> Collector<'a> {
     pub fn new(db: &'a mut Database) -> Self {
         Self {
             db,
+            file_id: FileId(0),
         }
     }
 
     pub fn analyze_module(&mut self, module: &Module) {
         self.db.reset_scope();
+        self.file_id = module.file;
         for declaration in &module.declaration {
             self.collect_declaration(declaration);
         }
@@ -28,10 +32,11 @@ impl<'a> Collector<'a> {
     fn collect_declaration(&mut self, declaration: &Declaration) {
         match &declaration.kind {
             DeclarationKind::Fn(func) => {
-                let result = self.db.add_symbol(Symbol {
+                let result = self.add_symbol(Symbol {
                     name: func.kind.name.clone(),
                     span: func.span,
                     kind: SymbolKind::Function(FunctionSymbol {
+                        file_id: self.file_id,
                         name: func.kind.name.clone(),
                         parameters: func
                             .kind
@@ -44,13 +49,15 @@ impl<'a> Collector<'a> {
                             })
                             .collect(),
                         return_type: func.kind.return_type.clone(),
+                        visibility: func.kind.visibility.clone(),
+                        span: func.span,
                     }),
                 });
 
                 match result {
                     Err(_) => {
-                        let prev_name = self.db.lookup_symbol(func.kind.name.clone()).unwrap().name;
-                        let prev_span = self.db.lookup_symbol(func.kind.name.clone()).unwrap().span;
+                        let prev_name = self.lookup_symbol(func.kind.name.clone()).unwrap().name;
+                        let prev_span = self.lookup_symbol(func.kind.name.clone()).unwrap().span;
                         self.db.report_error(SemanticError::Duplicate {
                             name: func.kind.name.clone(),
                             span: func.span,
@@ -66,6 +73,7 @@ impl<'a> Collector<'a> {
                     name: extern_func.name.clone(),
                     span: extern_func.span,
                     kind: SymbolKind::Function(FunctionSymbol {
+                        file_id: self.file_id,
                         name: extern_func.name.clone(),
                         parameters: extern_func
                             .parameters
@@ -77,15 +85,17 @@ impl<'a> Collector<'a> {
                             })
                             .collect(),
                         return_type: extern_func.return_type.clone(),
+                        visibility: tahuc_ast::nodes::declarations::Visibility::Public,
+                        span: extern_func.span,
                     }),
                 };
-                let result = self.db.add_symbol(symbol);
+                let result = self.add_symbol(symbol);
 
                 match result {
                     Err(_) => {
-                        let prev_name = self.db.lookup_symbol(extern_func.name.clone()).unwrap().name;
-                        let prev_span = self.db.lookup_symbol(extern_func.name.clone()).unwrap().span;
-                        self.db.report_error(SemanticError::Duplicate {
+                        let prev_name = self.lookup_symbol(extern_func.name.clone()).unwrap().name;
+                        let prev_span = self.lookup_symbol(extern_func.name.clone()).unwrap().span;
+                        self.db.report_error(SemanticError::DuplicateExternFn {
                             name: extern_func.name.clone(),
                             span: extern_func.span,
                             previous: prev_name,
@@ -110,11 +120,11 @@ impl<'a> Collector<'a> {
                     }),
                 };
 
-                let result = self.db.add_symbol(symbol);
+                let result = self.add_symbol(symbol);
                 match result {
                     Err(_) => {
-                        let prev_name = self.db.lookup_symbol(var.name.clone()).unwrap().name;
-                        let prev_span = self.db.lookup_symbol(var.name.clone()).unwrap().span;
+                        let prev_name = self.lookup_symbol(var.name.clone()).unwrap().name;
+                        let prev_span = self.lookup_symbol(var.name.clone()).unwrap().span;
                         self.db.report_error(SemanticError::Duplicate {
                             name: var.name.clone(),
                             span: var.span,
@@ -127,5 +137,13 @@ impl<'a> Collector<'a> {
             }
             _ => {}
         }
+    }
+
+    fn add_symbol(&mut self, symbol: Symbol) -> Result<(), String> {
+        self.db.add_symbol(self.file_id, symbol)
+    }
+
+    fn lookup_symbol(&mut self, name: String) -> Option<Symbol> {
+        self.db.lookup_symbol(self.file_id, name)
     }
 }

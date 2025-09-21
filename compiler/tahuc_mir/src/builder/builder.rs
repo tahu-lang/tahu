@@ -123,6 +123,7 @@ impl Builder {
         }
 
         MirModule {
+            file_id: hir_module.file_id,
             functions,
             extern_functions,
         }

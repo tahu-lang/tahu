@@ -4,9 +4,7 @@ use tahuc_hir::hir::FunctionId;
 use crate::{
     builder::builder::Builder,
     mir::{
-        LocalId,
-        instruction::{MirInstruction, MirOperand},
-        ty::MirType,
+        instruction::{MirInstruction, MirOperand}, ty::MirType, BasicBlockId, LocalId
     },
 };
 
@@ -82,6 +80,34 @@ impl Builder {
             function,
             arguments,
             ty,
+        });
+    }
+
+    pub(crate) fn phi(
+        &mut self,
+        target: LocalId,
+        values: Vec<(MirOperand, BasicBlockId)>,
+        ty: MirType,
+    ) {
+        self.add_instruction(MirInstruction::Phi {
+            target,
+            values,
+            ty,
+        });
+    }
+
+    pub(crate) fn select(
+        &mut self,
+        target: LocalId,
+        condition: MirOperand,
+        then_branch: MirOperand,
+        else_branch: MirOperand,
+    ) {
+        self.add_instruction(MirInstruction::Select {
+            target,
+            condition,
+            then_branch,
+            else_branch,
         });
     }
 

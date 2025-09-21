@@ -9,6 +9,7 @@ use tahuc_ast::{
         statements::{Block, Statement, StatementKind, Variable},
     },
 };
+use tahuc_span::FileId;
 
 use crate::{
     database::Database,
@@ -18,6 +19,7 @@ use crate::{
 
 pub struct ControlFlowAnalyzer<'a> {
     db: &'a mut Database,
+    file_id: FileId,
     current_function_name: Option<String>,
     current_function_return_type: Type,
 
@@ -31,6 +33,7 @@ impl<'a> ControlFlowAnalyzer<'a> {
     pub fn new(db: &'a mut Database) -> Self {
         Self {
             db,
+            file_id: FileId(0),
             current_function_name: None,
             current_function_return_type: Type::Inferred,
             assigned_vars: HashMap::new(),
@@ -40,6 +43,7 @@ impl<'a> ControlFlowAnalyzer<'a> {
 
     pub fn analyze_module(&mut self, module: &Module) {
         self.db.reset_scope();
+        self.file_id = module.file;
 
         for declaration in &module.declaration {
             self.analyze_declaration(declaration);
@@ -60,7 +64,7 @@ impl<'a> ControlFlowAnalyzer<'a> {
             }),
         };
 
-        self.db.add_symbol(symbol)
+        self.add_symbol(symbol)
     }
 
     fn analyze_declaration(&mut self, declaration: &Declaration) {
@@ -71,7 +75,7 @@ impl<'a> ControlFlowAnalyzer<'a> {
                 self.assigned_vars.clear();
                 self.is_unreachable = false;
 
-                if let Some(_) = self.db.lookup_symbol(func.kind.name.clone()) {
+                if let Some(_) = self.lookup_symbol(func.kind.name.clone()) {
                     self.db.enter_scope();
 
                     for param in &func.kind.parameters {
@@ -143,22 +147,6 @@ impl<'a> ControlFlowAnalyzer<'a> {
                 }
                 true // This path returns
             }
-
-            // StatementKind::Block(block) => {
-            //     // Save current state for block scope
-            //     let saved_vars = self.assigned_vars.clone();
-            //     let saved_unreachable = self.is_unreachable;
-
-            //     self.db.enter_scope();
-            //     let has_return = self.analyze_block(block);
-            //     self.db.exit_scope();
-
-            //     // Restore state after block
-            //     self.assigned_vars = saved_vars;
-            //     self.is_unreachable = saved_unreachable;
-
-            //     has_return
-            // }
             _ => false,
         }
     }
@@ -171,7 +159,7 @@ impl<'a> ControlFlowAnalyzer<'a> {
                     if !is_assigned {
                         println!("Error: Use of uninitialized variable '{}'", ident);
                     }
-                } else if self.db.lookup_symbol(ident.clone()).is_some() {
+                } else if self.lookup_symbol(ident.clone()).is_some() {
                     // Variable exists but not tracked locally (probably from outer scope)
                     // This is fine for variables declared outside current function
                 } else {
@@ -179,39 +167,6 @@ impl<'a> ControlFlowAnalyzer<'a> {
                     println!("Error: Undefined variable '{}'", ident);
                 }
             }
-
-            // ExpressionKind::Assignment { left, right, .. } => {
-            //     // Analyze right side first
-            //     self.analyze_expression(right);
-
-            //     // Handle assignment to identifier
-            //     if let ExpressionKind::Identifier(var_name) = &left.kind {
-            //         // Check if variable exists
-            //         if let Some(symbol) = self.db.lookup_symbol(var_name.clone()) {
-            //             if let Some(var_symbol) = symbol.get_variable() {
-            //                 // Check mutability
-            //                 if !var_symbol.name.is_empty() {
-            //                     // placeholder for is_mutable check
-            //                     self.assigned_vars.insert(var_name.clone(), true);
-            //                 } else {
-            //                     // println!(
-            //                     //     "Error: Cannot assign to immutable variable '{}'",
-            //                     //     var_name
-            //                     // );
-            //                     self.db.report_error(SemanticError::CannotAssignImmutable {
-            //                         name: var_name.clone(),
-            //                         span: left.span.merge(right.span),
-            //                     });
-            //                 }
-            //             }
-            //         } 
-            //         // else {
-            //         //     // println!("Error: Cannot assign to undefined variable '{}'", var_name);
-            //         // }
-            //     }
-
-                // self.analyze_expression(left);
-            // }
 
             ExpressionKind::Binary { left, right, .. } => {
                 self.analyze_expression(left);
@@ -309,5 +264,13 @@ impl<'a> ControlFlowAnalyzer<'a> {
                 self.assigned_vars.insert(var_name.clone(), false);
             }
         }
+    }
+
+    fn add_symbol(&mut self, symbol: Symbol) -> Result<(), String> {
+        self.db.add_symbol(self.file_id, symbol)
+    }
+
+    fn lookup_symbol(&mut self, name: String) -> Option<Symbol> {
+        self.db.lookup_symbol(self.file_id, name)
     }
 }

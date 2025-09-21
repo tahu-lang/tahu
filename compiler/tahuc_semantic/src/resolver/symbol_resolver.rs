@@ -7,6 +7,7 @@ use tahuc_ast::{
         statements::{Block, ElseBranch, IfStatement, Statement, StatementKind, Variable},
     },
 };
+use tahuc_span::FileId;
 
 use crate::{
     database::Database,
@@ -16,15 +17,21 @@ use crate::{
 
 pub struct SymbolResolution<'a> {
     db: &'a mut Database,
+    file_id: FileId,
 }
 
 impl<'a> SymbolResolution<'a> {
     pub fn new(db: &'a mut Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            file_id: FileId(0),
+        }
     }
 
     pub fn analyze_module(&mut self, module: &Module) {
         self.db.reset_scope();
+        self.file_id = module.file;
+
         for declaration in &module.declaration {
             self.resolve_declaration(declaration);
         }
@@ -44,17 +51,17 @@ impl<'a> SymbolResolution<'a> {
             }),
         };
 
-        self.db.add_symbol(symbol)
+        self.add_symbol(symbol)
     }
 
     fn resolve_declaration(&mut self, declaration: &Declaration) {
         match &declaration.kind {
             DeclarationKind::Fn(func) => {
-                if let Some(_) = self.db.lookup_symbol(func.kind.name.clone()) {
+                if let Some(_) = self.lookup_symbol(func.kind.name.clone()) {
                     self.db.enter_scope();
 
                     for p in func.kind.parameters.iter() {
-                        if let Err(_) = self.db.add_symbol(Symbol {
+                        if let Err(_) = self.add_symbol(Symbol {
                             name: p.kind.name.clone(),
                             span: p.span,
                             kind: SymbolKind::Variable(VariableSymbol {
@@ -67,7 +74,7 @@ impl<'a> SymbolResolution<'a> {
                                 final_type: p.kind.r#type.clone(),
                             }),
                         }) {
-                            let prev = self.db.lookup_symbol(p.kind.name.clone()).unwrap();
+                            let prev = self.lookup_symbol(p.kind.name.clone()).unwrap();
                             let prev_span = prev.span;
                             self.db
                                 .report_error(crate::error::SemanticError::Duplicate {
@@ -87,7 +94,7 @@ impl<'a> SymbolResolution<'a> {
                 }
             }
             DeclarationKind::Variable(var) => {
-                if let Some(_) = self.db.lookup_symbol(var.name.clone()) {
+                if let Some(_) = self.lookup_symbol(var.name.clone()) {
                     if let Some(initiliazer) = &var.initializer {
                         self.resolve_expression(initiliazer);
                     }
@@ -121,8 +128,8 @@ impl<'a> SymbolResolution<'a> {
         match &statement.kind {
             StatementKind::Variable(var) => {
                 if let Err(_) = self.add_variable(var) {
-                    let prev_name = self.db.lookup_symbol(var.name.clone()).unwrap().name;
-                    let prev_span = self.db.lookup_symbol(var.name.clone()).unwrap().span;
+                    let prev_name = self.lookup_symbol(var.name.clone()).unwrap().name;
+                    let prev_span = self.lookup_symbol(var.name.clone()).unwrap().span;
                     self.db.report_error(SemanticError::Duplicate {
                         name: var.name.clone(),
                         span: var.span,
@@ -139,7 +146,6 @@ impl<'a> SymbolResolution<'a> {
                     self.resolve_expression(value);
                 }
             }
-            // StatementKind::Block(block) => self.resolve_block(block),
             StatementKind::Expression(expr) => {
                 self.resolve_expression(expr);
             }
@@ -157,17 +163,31 @@ impl<'a> SymbolResolution<'a> {
     fn resolve_expression(&mut self, expression: &Expression) {
         match &expression.kind {
             ExpressionKind::Identifier(identifer) => {
-                if self.db.lookup_symbol(identifer.clone()).is_none() {
+                if let Some(symbol) = self.lookup_symbol(identifer.clone()) {
+                    if let Some(func) = symbol.get_function() {
+                        if !func.visibility.is_public() {
+                            if self.file_id != func.file_id {
+                                self.db.report_error(SemanticError::PrivateFunction {
+                                    name: func.name.clone(),
+                                    span: func.span,
+                                });
+                            }
+                        }
+                    } else if let Some(_) = symbol.get_variable() {
+                        // All good
+                    } else {
+                        self.db.report_error(SemanticError::Undefined {
+                            name: identifer.clone(),
+                            span: expression.span,
+                        });
+                    }
+                } else {
                     self.db.report_error(SemanticError::Undefined {
                         name: identifer.clone(),
                         span: expression.span,
                     });
                 }
             }
-            // ExpressionKind::Assignment { left, right, .. } => {
-            //     self.resolve_expression(left);
-            //     self.resolve_expression(right);
-            // }
             ExpressionKind::Binary { left, right, .. } => {
                 self.resolve_expression(left);
                 self.resolve_expression(right);
@@ -198,5 +218,13 @@ impl<'a> SymbolResolution<'a> {
                 self.resolve_expression(expr);
             }
         }
+    }
+
+    fn add_symbol(&mut self, symbol: Symbol) -> Result<(), String> {
+        self.db.add_symbol(self.file_id, symbol)
+    }
+
+    fn lookup_symbol(&mut self, name: String) -> Option<Symbol> {
+        self.db.lookup_symbol(self.file_id, name)
     }
 }

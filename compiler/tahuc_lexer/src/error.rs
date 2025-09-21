@@ -7,6 +7,8 @@ pub enum LexerError {
     UnterminatedString { span: Span },
     InvalidEscapeSequence(char),
     InvalidUnicodeEscape,
+    UnterminatedChar { span: Span },
+    TooManyCharsInCharLiteral { span: Span },
     UnexpectedEof,
     InvalidTemplateExpression,
     UnbalancedBraces,
@@ -27,6 +29,14 @@ impl LexerError {
                 .with_span(*span)
                 .with_suggestion(Suggestion::insert_after(*span, "Add closing quote", "\""))
                 .with_note("String literals must be closed with a matching quote"),
+            LexerError::UnterminatedChar { span } => {
+                Diagnostic::error("Unterminated character literal")
+                    .with_span(*span)
+            }
+            LexerError::TooManyCharsInCharLiteral { span } => {
+                Diagnostic::error("Character literal contains too many characters")
+                    .with_span(*span)
+            }
             LexerError::InvalidEscapeSequence(ch) => {
                 Diagnostic::error(format!("Invalid escape sequence '\\{}'", ch))
                     .with_span(span)

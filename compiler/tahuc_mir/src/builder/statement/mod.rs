@@ -53,7 +53,7 @@ impl Builder {
                 self.emit_branch(condition, then_block, false_target);
                 self.switch_to_block(then_block);
                 let termination = self.build_block(&if_stmt.then_branch);
-                if termination.is_terminated() {
+                if !termination.is_terminated() {
                     self.emit_jump(merge_block);
                 }
 
@@ -81,7 +81,7 @@ impl Builder {
 
                 self.switch_to_block(loop_body);
                 let termination = self.build_block(body);
-                if termination.is_terminated() {
+                if !termination.is_terminated() {
                     self.emit_jump(loop_header);
                 }
 
@@ -116,7 +116,7 @@ impl Builder {
                 self.emit_branch(condition, then_block, false_target);
                 self.switch_to_block(then_block);
                 let termination = self.build_block(&if_stmt.then_branch);
-                if termination.is_terminated() {
+                if !termination.is_terminated() {
                     self.emit_jump(merge_block);
                 }
 
@@ -127,7 +127,7 @@ impl Builder {
             }
             HirElseBranch::Block(block) => {
                 let termination = self.build_block(block);
-                if termination.is_terminated() {
+                if !termination.is_terminated() {
                     self.emit_jump(merge_block);   
                 }
             }
