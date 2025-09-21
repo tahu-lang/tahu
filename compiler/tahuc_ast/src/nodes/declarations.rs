@@ -35,6 +35,15 @@ pub enum Visibility {
     Protected,
 }
 
+impl Visibility {
+    pub fn is_public(&self) -> bool {
+        match self {
+            Visibility::Public => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Interface {
     pub visibility: Visibility,
