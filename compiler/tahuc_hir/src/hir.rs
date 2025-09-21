@@ -1,10 +1,12 @@
 use tahuc_ast::{nodes::op::{AssignmentOp, BinaryOp, UnaryOp}, Type};
+use tahuc_span::FileId;
 
 pub type FunctionId = u32;
 pub type VariableId = u32;
 
 #[derive(Debug, Clone)]
 pub struct HirModule {
+    pub file_id: FileId,
     pub functions: Vec<HirFunction>,
     pub extern_functions: Vec<HirExternFunction>,
 }
@@ -15,7 +17,14 @@ pub struct HirFunction {
     pub name: String,
     pub parameters: Vec<HirParameters>,
     pub return_type: Type,
+    pub visibility: HirVisibility,
     pub body: HirBlock,
+}
+
+#[derive(Debug, Clone)]
+pub enum HirVisibility {
+    Public,
+    Private,
 }
 
 #[derive(Debug, Clone)]
@@ -60,11 +69,6 @@ pub enum HirStatement {
     Return {
         value: Option<HirExpression>,
     },
-    // If {
-    //     condition: HirExpression,
-    //     then_branch: Box<HirBlock>,
-    //     else_branch: Option<Box<HirBlock>>,
-    // },
     If(HirIfStatement),
     While {
         condition: HirExpression,
@@ -85,6 +89,11 @@ pub struct HirIfStatement {
 pub enum HirElseBranch {
     Block(HirBlock),
     If(Box<HirIfStatement>)
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionSignature {
+    pub args: Vec<Type>,
 }
 
 #[derive(Debug, Clone)]
@@ -122,9 +131,25 @@ pub enum HirExpression {
         index: Box<HirExpression>,
         ty: Type,
     },
+    MemberAccess {
+        object: Box<HirExpression>,
+        member: String,
+        ty: Type,
+    },
     Call {
         callee: FunctionId,
         arguments: Vec<HirExpression>,
+        signature: FunctionSignature,
+        ty: Type,
+    },
+    MethodCall {
+        object: Box<HirExpression>,
+        // method: 
+        arguments: Vec<HirExpression>,
+        ty: Type,
+    },
+    Cast {
+        value: Box<HirExpression>,
         ty: Type,
     },
 }
@@ -136,6 +161,22 @@ impl HirExpression {
             _ => None,
         }
     }
+
+    pub fn get_type(&self) -> Type {
+        match self {
+            HirExpression::Literal { ty, .. } => ty.clone(),
+            HirExpression::Variable { ty, .. } => ty.clone(),
+            HirExpression::Ternary { then_branch, .. } => then_branch.get_type(),
+            HirExpression::Binary { ty, .. } => ty.clone(),
+            HirExpression::Unary { ty, .. } => ty.clone(),
+            HirExpression::ArrayLiteral { ty, .. } => ty.clone(),
+            HirExpression::ArrayAccess { ty, .. } => ty.clone(),
+            HirExpression::MemberAccess { ty, .. } => ty.clone(),
+            HirExpression::MethodCall { ty, .. } => ty.clone(),
+            HirExpression::Call { ty, .. } => ty.clone(),
+            HirExpression::Cast { ty, .. } => ty.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -144,14 +185,29 @@ pub enum HirLValue {
     ArrayAccess {
         array: Box<HirExpression>,
         index: Box<HirExpression>,
-    }
+    },
+    Deref(HirExpression),
 }
 
 #[derive(Debug, Clone)]
 pub enum HirLiteral {
     String(String),
+    Char(char),
     Integer(i64),
     Float(f64),
     Boolean(bool),
-    Null,
+    Null(Type),
+}
+
+impl HirLiteral {
+    pub fn get_type(&self) -> Type {
+        match self {
+            HirLiteral::String(_) => Type::String,
+            HirLiteral::Char(_) => Type::Char,
+            HirLiteral::Integer(_) => Type::Int,
+            HirLiteral::Float(_) => Type::Double,
+            HirLiteral::Boolean(_) => Type::Boolean,
+            HirLiteral::Null(ty) => ty.clone(),
+        }
+    }
 }

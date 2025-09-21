@@ -1,47 +1,72 @@
 use std::collections::HashMap;
 
 use tahuc_ast::{
-    Module,
     nodes::{
-        Expression,
-        declarations::{DeclarationKind, Function},
-        expressions::{Argument, ExpressionKind},
-        statements::{Block, ElseBranch, IfStatement, Statement, StatementKind},
-    },
+        declarations::{DeclarationKind, ExternFn, Function}, expressions::{Argument, ExpressionKind}, op::UnaryOp, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
+    }, Module, Type
 };
 use tahuc_lexer::token::Literal;
 use tahuc_semantic::database::Database;
+use tahuc_span::FileId;
 
 use crate::{
-    hir::{
-        FunctionId, HirBlock, HirElseBranch, HirExpression, HirExternFunction, HirFunction, HirIfStatement, HirLValue, HirLiteral, HirModule, HirParameters, HirStatement, HirVariable
-    },
+    hir::*,
     printer::HirPrinter,
 };
 
 pub mod hir;
 mod printer;
 
-pub struct Hir {
-    db: Database,
+pub struct FnSignature {
+    pub name: String,
+    pub paramater: Vec<HirParameters>,
+    pub param_ty: Vec<Type>,
+    pub return_type: Type,
+}
+
+trait Visibility {
+    fn to_hir(&self) -> HirVisibility;
+}
+
+impl Visibility for tahuc_ast::nodes::declarations::Visibility {
+    fn to_hir(&self) -> HirVisibility {
+        match self {
+            tahuc_ast::nodes::declarations::Visibility::Public => HirVisibility::Public,
+            tahuc_ast::nodes::declarations::Visibility::Private => HirVisibility::Private,
+            tahuc_ast::nodes::declarations::Visibility::Protected => HirVisibility::Private,
+        }
+    }
+}
+
+pub struct Hir<'a> {
+    db: &'a mut Database,
+    file_id: FileId,
     functions: Vec<HirFunction>,
     extern_functions: Vec<HirExternFunction>,
     variables: HashMap<String, HirVariable>,
-    functions_map: HashMap<String, FunctionId>,
+    functions_map: HashMap<FileId, HashMap<String, FunctionId>>,
+    function_signature: HashMap<FunctionId, FnSignature>,
     function_id: u32,
     variable_id: u32,
+    current_file: Option<FileId>,
+
+    pendings_extern_fn: HashMap<FunctionId, String>,
 }
 
-impl Hir {
-    pub fn new(db: Database) -> Self {
+impl<'a> Hir<'a> {
+    pub fn new(db: &'a mut Database) -> Self {
         Self {
             db,
+            file_id: FileId(0),
             functions: vec![],
             extern_functions: vec![],
             variables: HashMap::new(),
             functions_map: HashMap::new(),
+            function_signature: HashMap::new(),
             function_id: 0,
             variable_id: 0,
+            current_file: None,
+            pendings_extern_fn: HashMap::new(),
         }
     }
 
@@ -57,27 +82,59 @@ impl Hir {
         id
     }
 
-    pub fn to_hir(&mut self, module: &Module) -> HirModule {
-        // First pass: Register all function names with IDs
-        for declaration in &module.declaration {
-            match &declaration.kind {
-                DeclarationKind::Fn(func) => {
-                    let function_id = self.next_id_function();
-                    self.functions_map.insert(func.kind.name.clone(), function_id);
+    fn collect_declaration(&mut self, modules: &Vec<Module>) {
+        for module in modules {
+            for declaration in &module.declaration {
+                match &declaration.kind {
+                    DeclarationKind::Fn(func) => {
+                        let id = self.next_id_function();
+                        // self.functions_map.insert(func.kind.name.clone(), function_id);
+
+                        self.add_function(module.file, id, func.kind.name.clone());
+
+                        self.add_signature_func(id, func);
+                    }
+                    DeclarationKind::Extern(extern_func) => {
+                        let id = self.next_id_function();
+                        // self.functions_map.insert(extern_func.name.clone(), extern_fn_id);
+                        self.add_function(module.file, id, extern_func.name.clone());
+
+                        self.add_signature_ex_func(id, extern_func);
+                    }
+                    _ => {}
                 }
-                DeclarationKind::Extern(extern_func) => {
-                    let extern_fn_id = self.next_id_function();
-                    self.functions_map.insert(extern_func.name.clone(), extern_fn_id);
-                }
-                _ => {}
             }
         }
+    }
 
-        // Second pass: Process function bodies
+    pub fn to_hir(&mut self, modules: &Vec<Module>) -> Vec<HirModule> {
+        // First pass: Register all function names with IDs
+        self.collect_declaration(modules);
+
+        let mut hir_modules = Vec::new();
+
+        for module in modules {
+            self.file_id = module.file;
+            self.current_file = Some(module.file);
+            self.clear_state();
+
+            hir_modules.push(self.lowering_module(module));
+        }
+
+        hir_modules
+    }
+
+    fn clear_state(&mut self) {
+        self.functions.clear();
+        self.extern_functions.clear();
+        self.pendings_extern_fn.clear();
+    }
+
+    fn lowering_module(&mut self, module: &Module) -> HirModule {
         for declaration in &module.declaration {
             match &declaration.kind {
                 DeclarationKind::Fn(func) => {
-                    let fun = self.function_declaration(func);
+                    let fun = self.function_declaration(module.file, func);
                     self.functions.push(fun);
                 }
                 DeclarationKind::Extern(extern_func) => {
@@ -91,7 +148,8 @@ impl Hir {
                         });
                     }
                     let extern_fn = HirExternFunction {
-                        id: *self.functions_map.get(&extern_func.name).unwrap(),
+                        // id: *self.functions_map.get(&extern_func.name).unwrap(),
+                        id: *self.functions_map.get(&module.file).unwrap().get(&extern_func.name).unwrap(),
                         name: extern_func.name.clone(),
                         parameters: hir_params,
                         return_type: extern_func.return_type.clone(),
@@ -102,13 +160,26 @@ impl Hir {
             }
         }
 
+        for (id, _) in &self.pendings_extern_fn {
+            println!("pending extern fn {}", id);
+            let signature = self.function_signature.get(id).unwrap();
+            let extern_fn = HirExternFunction {
+                id: *id,
+                name: signature.name.clone(),
+                parameters: signature.paramater.clone(),
+                return_type: signature.return_type.clone(),
+            };
+            self.extern_functions.push(extern_fn);
+        }
+
         HirModule {
+            file_id: module.file,
             functions: self.functions.clone(),
             extern_functions: self.extern_functions.clone(),
         }
     }
 
-    fn function_declaration(&mut self, func: &Function) -> HirFunction {
+    fn function_declaration(&mut self, file_id: FileId, func: &Function) -> HirFunction {
         let mut hir_params: Vec<HirParameters> = Vec::new();
 
         self.variables.clear();
@@ -134,11 +205,13 @@ impl Hir {
         self.db.exit_scope();
 
         HirFunction {
-            id: *self.functions_map.get(&func.kind.name).unwrap(), // Use pre-registered ID
+            // id: *self.functions_map.get(&func.kind.name).unwrap(), // Use pre-registered ID
+            id: self.functions_map.get(&file_id).unwrap().get(&func.kind.name).unwrap().clone(),
             name: func.kind.name.clone(),
             parameters: hir_params,
             body: block,
             return_type: func.kind.return_type.clone(),
+            visibility: func.kind.visibility.to_hir(),
         }
     }
 
@@ -158,7 +231,7 @@ impl Hir {
             hir_statements.push(res.unwrap());
         }
 
-        self.db.enter_scope();
+        self.db.exit_scope();
 
         HirBlock {
             statements: hir_statements,
@@ -176,7 +249,6 @@ impl Hir {
                     id: self.next_id_variable(),
                     name: var.name.clone(),
                     ty: self
-                        .db
                         .get_type(statement.id)
                         .unwrap_or(&var.variable_type)
                         .clone(),
@@ -305,25 +377,39 @@ impl Hir {
                     .ok_or("Variable not found".to_string())
                     .map(|var| HirLValue::Variable(var.id))
             }
-            _ => Err("Not Support expression".to_string()),
+            ExpressionKind::Unary { op, operand } => {
+                match op {
+                    UnaryOp::Deref => {
+                        let operand = self.lower_expression(&operand)?;
+                        Ok(HirLValue::Deref(operand))
+                    }
+                    _ => {
+                        Err(format!("Not Support unary expression {:?}", op))
+                    }
+                }
+            }
+            _ => {
+                Err(format!("Not Support expression {:?}", left.kind))
+            },
         }
     }
 
     fn lower_expression(&mut self, expr: &Expression) -> Result<HirExpression, String> {
         match &expr.kind {
             ExpressionKind::Literal(literal) => {
-                if let None = self.db.get_type(expr.id) {
+                if let None = self.get_type(expr.id) {
                     println!("Error Literal {:?}", expr);
                 }
+                let ty = self.get_type(expr.id).unwrap().clone();
                 Ok(HirExpression::Literal {
-                    value: self.ast_literal_to_hir_literal(literal),
-                    ty: self.db.get_type(expr.id).unwrap().clone(),
+                    value: self.ast_literal_to_hir_literal(literal, ty.clone()),
+                    ty: ty.clone(),
                 })
             }
             ExpressionKind::TemplateString { parts } => {
                 let mut acc = HirExpression::Literal {
                     value: HirLiteral::String("".to_string()),
-                    ty: self.db.get_type(expr.id).unwrap().clone(),
+                    ty: self.get_type(expr.id).unwrap().clone(),
                 };
 
                 for part in parts {
@@ -334,7 +420,7 @@ impl Hir {
                         tahuc_ast::nodes::expressions::TemplatePart::Text(literal) => {
                             HirExpression::Literal {
                                 value: HirLiteral::String(literal.to_string()),
-                                ty: self.db.get_type(expr.id).unwrap().clone(),
+                                ty: self.get_type(expr.id).unwrap().clone(),
                             }
                         }
                     };
@@ -344,17 +430,17 @@ impl Hir {
                         left: Box::new(acc),
                         op: tahuc_ast::nodes::op::BinaryOp::Add,
                         right: Box::new(rhs),
-                        ty: self.db.get_type(expr.id).unwrap().clone(),
+                        ty: self.get_type(expr.id).unwrap().clone(),
                     };
                 }
 
                 Ok(acc)
             }
             ExpressionKind::Identifier(id) => {
-                if let None = self.db.get_type(expr.id) {
+                if let None = self.get_type(expr.id) {
                     println!();
-                    println!("id {} not found", expr.id);
-                    println!("Error not found {:?}", expr);
+                    println!("HIR: id {} not found", expr.id);
+                    println!("HIR: Error not found {:?}", expr);
                 }
                 self.variables
                     .get(id)
@@ -385,7 +471,7 @@ impl Hir {
                     left: Box::new(lhs),
                     op: op.clone(),
                     right: Box::new(rhs),
-                    ty: self.db.get_type(expr.id).unwrap().clone(),
+                    ty: self.get_type(expr.id).unwrap().clone(),
                 })
             }
             ExpressionKind::Unary { op, operand } => {
@@ -394,7 +480,7 @@ impl Hir {
                 Ok(HirExpression::Unary {
                     op: op.clone(),
                     operand: Box::new(right),
-                    ty: self.db.get_type(expr.id).unwrap().clone(),
+                    ty: self.get_type(expr.id).unwrap().clone(),
                 })
             }
             ExpressionKind::ArrayLiteral { elements } => {
@@ -405,7 +491,7 @@ impl Hir {
 
                 Ok(HirExpression::ArrayLiteral {
                     elements: arr,
-                    ty: self.db.get_type(expr.id).unwrap().clone(),
+                    ty: self.get_type(expr.id).unwrap().clone(),
                 })
             }
             ExpressionKind::ArrayAccess { array, index } => {
@@ -415,10 +501,17 @@ impl Hir {
                 Ok(HirExpression::ArrayAccess {
                     array: Box::new(arr),
                     index: Box::new(idx),
-                    ty: self.db.get_type(expr.id).unwrap().clone(),
+                    ty: self.get_type(expr.id).unwrap().clone(),
                 })
             }
-            // ExpressionKind::MemberAccess { object, member } => {}
+            ExpressionKind::MemberAccess { object, member } => {
+                let obj = self.lower_expression(&object)?;
+                Ok(HirExpression::MemberAccess {
+                    object: Box::new(obj),
+                    member: member.clone(),
+                    ty: self.get_type(expr.id).unwrap().clone(),
+                })
+            }
             ExpressionKind::FunctionCall(callee) => {
                 let mut hir_args: Vec<HirExpression> = Vec::new();
 
@@ -433,36 +526,141 @@ impl Hir {
                     }
                 }
 
+                match &callee.function.kind {
+                    ExpressionKind::Identifier(ident) => {
+                        let fid = self.get_function_id(ident.to_string()).unwrap();
+                        let signature = self.get_signature(fid);
+                        return Ok(HirExpression::Call {
+                            callee: fid,
+                            arguments: hir_args,
+                            signature: FunctionSignature {
+                                args: signature.param_ty.clone(),
+                            },
+                            ty: self.get_type(callee.function.id).unwrap().clone(),
+                        });
+                    }
+                    ExpressionKind::MemberAccess { .. } => {}
+                    _ => {}
+                }
+
                 let fun = match &callee.function.kind {
                     ExpressionKind::Identifier(ident) => {
-                        Some(self.functions_map.get(ident).cloned().unwrap())
+                        self.get_function_id(ident.to_string())
                     }
                     _ => None,
                 };
 
                 Ok(HirExpression::Call {
                     callee: fun.unwrap(),
+                    signature: FunctionSignature {
+                        args: Vec::new(),
+                    },
                     arguments: hir_args,
-                    ty: self.db.get_type(callee.function.id).unwrap().clone(),
+                    ty: self.get_type(callee.function.id).unwrap().clone(),
                 })
             }
             // ExpressionKind::Grouping(group) => {}
-            _ => Err("Not Support expression".to_string()),
+            ExpressionKind::Cast { ty, expression } => {
+                let expr = self.lower_expression(&expression)?;
+
+                Ok(HirExpression::Cast {
+                    value: Box::new(expr),
+                    ty: ty.clone(),
+                })
+            }
+            _ => {
+
+                Err(format!("Not Support expression {:?}", expr.kind))
+            },
         }
     }
 
-    fn ast_literal_to_hir_literal(&mut self, literal: &Literal) -> HirLiteral {
+    fn ast_literal_to_hir_literal(&mut self, literal: &Literal, ty: Type) -> HirLiteral {
         match literal {
             Literal::String(str) => HirLiteral::String(str.to_string()),
+            Literal::Char(char) => HirLiteral::Char(*char),
             Literal::Integer(int) => HirLiteral::Integer(*int),
             Literal::Double(float) => HirLiteral::Float(*float),
             Literal::Boolean(bool) => HirLiteral::Boolean(*bool),
-            Literal::Null => HirLiteral::Null,
+            Literal::Null => HirLiteral::Null(ty),
         }
     }
 
-    pub fn print_debug(&self, hir_module: HirModule) {
-        let mut printer = HirPrinter::new();
-        printer.print_module(&hir_module);
+    fn add_function(&mut self, file_id: FileId, id: u32, name: String) {
+        self.functions_map.entry(file_id).or_default().insert(name, id);
+    }
+
+    fn get_function_id(&mut self, name: String) -> Option<FunctionId> {
+        for file_id in self.functions_map.keys() {
+            if let Some(id) = self.functions_map.get(file_id).unwrap().get(&name) {
+                if let Some(current_file) = self.current_file {
+                    if file_id.0 != current_file.0 {
+                        self.pendings_extern_fn.insert(*id, name);
+                    }
+                }
+                return Some(*id);
+            }
+        }
+        None
+    }
+
+    fn add_signature_func(&mut self, id: u32, func: &Function) {
+        let params: Vec<HirParameters> = func
+            .kind
+            .parameters
+            .iter()
+            .map(|p| 
+                HirParameters {
+                    id: 0,
+                    name: p.kind.name.clone(),
+                    ty: p.kind.r#type.clone(),
+                }
+            )
+            .collect();
+        self.add_signature(id, FnSignature {
+            name: func.kind.name.clone(),
+            paramater: params.clone(),
+            param_ty: params.iter().map(|p| p.ty.clone()).collect(),
+            return_type: func.kind.return_type.clone(),
+        });
+    }
+
+    fn add_signature_ex_func(&mut self, id: u32, extern_fn: &ExternFn) {
+        let params: Vec<HirParameters> = extern_fn
+            .parameters
+            .iter()
+            .map(|p|
+                HirParameters {
+                    id: 0,
+                    name: p.kind.name.clone(),
+                    ty: p.kind.r#type.clone(),
+                }
+            )
+            .collect();
+        self.add_signature(id, FnSignature {
+            name: extern_fn.name.clone(),
+            paramater: params.clone(),
+            param_ty: params.iter().map(|p| p.ty.clone()).collect(),
+            return_type: extern_fn.return_type.clone(),
+        });
+    }
+
+    fn add_signature(&mut self, id: u32, signature: FnSignature) {
+        self.function_signature.insert(id, signature);
+    }
+
+    fn get_signature(&mut self, id: u32) -> &FnSignature {
+        self.function_signature.get(&id).unwrap()
+    }
+
+    fn get_type(&mut self, id: u32) -> Option<&Type> {
+        self.db.get_type(self.file_id, id)
+    }
+
+    pub fn print_debug(&self, hir_modules: &Vec<HirModule>) {
+        for module in hir_modules {
+            let mut printer = HirPrinter::new();
+            printer.print_module(module);
+        }
     }
 }
