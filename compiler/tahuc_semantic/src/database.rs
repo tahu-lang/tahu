@@ -1,4 +1,5 @@
 use tahuc_ast::{nodes::ast::NodeId, Type};
+use tahuc_span::FileId;
 
 use crate::{error::SemanticError, scope::ScopeManager, symbol::{Symbol, SymbolManager, VariableSymbol}, type_manager::TypeManager};
 
@@ -13,6 +14,9 @@ pub struct Database {
     // type manager, all information about type by node id
     type_manager: TypeManager,
 
+    // files
+    files: Vec<FileId>,
+
     // error reporting
     errors: Vec<SemanticError>,
 }
@@ -23,6 +27,7 @@ impl Database {
             scope_manager: ScopeManager::new(),
             symbol_manager: SymbolManager::new(),
             type_manager: TypeManager::new(),
+            files: Vec::new(),
             errors: Vec::new(),
         }
     }
@@ -35,9 +40,14 @@ impl Database {
         &self.errors
     }
 
+    pub fn add_file(&mut self, file_id: FileId) {
+        self.files.push(file_id);
+        self.symbol_manager.add_file(file_id);
+    }
+
     pub fn reset_scope(&mut self) {
         self.scope_manager.reset();
-        self.symbol_manager.reset_keep_global();
+        self.symbol_manager.reset_state();
     }
 
     pub fn enter_scope(&mut self) {
@@ -48,55 +58,62 @@ impl Database {
         self.scope_manager.pop();
     }
 
-    pub fn add_symbol(&mut self, symbol: Symbol) -> Result<(), String> {
+    pub fn add_symbol(&mut self, file_id: FileId, symbol: Symbol) -> Result<(), String> {
         let id = self.scope_manager.current();
-        self.symbol_manager.insert(id, symbol.name.clone(), symbol)
+        self.symbol_manager.insert(file_id, id, symbol.name.clone(), symbol)
     }
 
-    pub fn lookup_symbol(&mut self, name: String) -> Option<Symbol> {
+    pub fn lookup_symbol(&mut self, file_id: FileId, name: String) -> Option<Symbol> {
         for &scope_id in self.scope_manager.iter_rev() {
-            if let Some(symbol) = self.symbol_manager.get(scope_id, name.to_string()) {
+            if let Some(symbol) = self.symbol_manager.get(file_id, scope_id, name.to_string()) {
                 return Some(symbol.clone());
             }
         }
+
+        for file in &self.files {
+            if let Some(symbol) = self.symbol_manager.get(*file, 0, name.to_string()) {
+                return Some(symbol.clone());
+            }
+        }
+
         None
     }
 
-    pub fn lookup_symbol_current_scope(&mut self, name: String) -> Option<Symbol> {
+    pub fn lookup_symbol_current_scope(&mut self, file_id: FileId, name: String) -> Option<Symbol> {
         let id = self.scope_manager.current();
-        if let Some(symbol) = self.symbol_manager.get(id, name.to_string()) {
+        if let Some(symbol) = self.symbol_manager.get(file_id, id, name.to_string()) {
             return Some(symbol.clone());
         }
         None
     }
 
-    pub fn lookup_symbol_mut(&mut self, name: String) -> Option<&mut Symbol> {
+    pub fn lookup_symbol_mut(&mut self, file_id: FileId, name: String) -> Option<&mut Symbol> {
         for &scope_id in self.scope_manager.iter_rev() {
-            if let Some(_) = self.symbol_manager.get(scope_id, name.clone()) {
-                return self.symbol_manager.get_mut(scope_id, name.clone());
+            if let Some(_) = self.symbol_manager.get(file_id, scope_id, name.clone()) {
+                return self.symbol_manager.get_mut(file_id, scope_id, name.clone());
             }
         }
         None
     }
     
 
-    pub fn update_variable<F>(&mut self, name: String, f: F)
+    pub fn update_variable<F>(&mut self, file_id: FileId, name: String, f: F)
     where
         F: FnOnce(&mut VariableSymbol),
     {
-        if let Some(symbol) = self.lookup_symbol_mut(name) {
+        if let Some(symbol) = self.lookup_symbol_mut(file_id, name) {
             if let Some(var) = symbol.get_variable_mut() {
                 f(var)
             }
         }
     }
 
-    pub fn add_type(&mut self, id: NodeId, ty: Type) {
-        self.type_manager.set_type(id, ty);
+    pub fn add_type(&mut self, file_id: FileId, id: NodeId, ty: Type) {
+        self.type_manager.set_type(file_id, id, ty);
     }
 
-    pub fn get_type(&self, id: NodeId) -> Option<&Type> {
-        self.type_manager.get_type(id)
+    pub fn get_type(&self, file_id: FileId, id: NodeId) -> Option<&Type> {
+        self.type_manager.get_type(file_id, id)
     }
 
     pub fn print_debug(&mut self) {

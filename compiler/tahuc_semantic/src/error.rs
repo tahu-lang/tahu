@@ -10,6 +10,16 @@ pub enum SemanticError {
         previous: String,
         previous_span: Span,
     },
+    DuplicateExternFn {
+        name: String,
+        span: Span,
+        previous: String,
+        previous_span: Span,
+    },
+    PrivateFunction {
+        name: String,
+        span: Span,
+    },
     Undefined {
         name: String,
         span: Span,
@@ -63,6 +73,19 @@ impl SemanticError {
                     .with_span(*span)
                     .with_note(format!("`{}` was previously defined here", name))
                     .with_related(*previous_span, previous)
+            }
+
+            SemanticError::DuplicateExternFn { name, span, previous, previous_span } => {
+                Diagnostic::error(format!("duplicate extern function `{}`", name))
+                    .with_span(*span)
+                    .with_note(format!("`{}` was previously declare here", name))
+                    .with_related(*previous_span, previous)
+            }
+
+            SemanticError::PrivateFunction { name, span } => {
+                Diagnostic::error(format!("function `{}` is private", name))
+                    .with_span(*span)
+                    .with_note(format!("`{}` is declared as private here", name))
             }
 
             SemanticError::Undefined { name, span } => {

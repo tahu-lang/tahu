@@ -1,62 +1,87 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use tahuc_ast::{Type, nodes::ast::NodeId};
-use tahuc_span::Span;
+use tahuc_ast::{nodes::{ast::NodeId, declarations::Visibility}, Type};
+use tahuc_span::{FileId, Span};
+
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+pub struct ScopeKey {
+    pub file_id: FileId,
+    pub id: usize,
+}
 
 #[derive(Debug, Clone)]
 pub struct SymbolManager {
-    pub symbols: HashMap<usize, HashMap<String, Symbol>>,
+    pub symbols: HashMap<ScopeKey, HashMap<String, Symbol>>,
+    files: HashSet<FileId>,
 }
 
 impl SymbolManager {
     pub fn new() -> Self {
         Self {
             symbols: HashMap::new(),
+            files: HashSet::new(),
         }
     }
 
-    pub fn reset_keep_global(&mut self) {
-        if let Some(global) = self.symbols.get(&0).cloned() {
-            self.symbols.clear();
-            self.symbols.insert(0, global); // restore global only
+    pub fn add_file(&mut self, file_id: FileId) {
+        self.files.insert(file_id);
+    }
+
+    pub fn reset_state(&mut self) {
+        let mut symbols = Vec::new();
+
+        for file in self.files.iter() {
+            let queries = ScopeKey { file_id: *file, id: 0 };
+            let symbol = self.symbols.get(&queries).cloned().unwrap_or_else(|| HashMap::new());
+            symbols.push((queries, symbol));
+        }
+
+        self.symbols.clear();
+        
+        for (queries, symbol) in symbols {
+            self.symbols.insert(queries, symbol);
+        }
+    }
+
+    pub fn insert(&mut self, file_id: FileId, id: usize, name: String, symbol: Symbol) -> Result<(), String> {
+        let queries = self.query(file_id, id);
+
+        // if name is exist in current scope return error
+        if let Some(symbol) = self.symbols.get(&queries) {
+            if symbol.contains_key(&name) {
+                return Err(format!("name '{}' already declared in scope {:?}", name, queries));
+            }
         } else {
-            self.symbols.clear();
-            self.symbols.insert(0, HashMap::new());
-        }
-    }
-
-    pub fn insert(&mut self, id: usize, name: String, symbol: Symbol) -> Result<(), String> {
-        if !self.symbols.contains_key(&id) {
-            self.symbols.insert(id, HashMap::new());
+            self.symbols.insert(queries.clone(), HashMap::new());
         }
 
-        // Cek apakah nama sudah ada di scope ini
-        if self.symbols.get(&id).unwrap().contains_key(&name) {
-            return Err(format!("name '{}' already declared in scope {}", name, id));
-        }
-
-        self.symbols.get_mut(&id).unwrap().insert(name, symbol);
+        self.symbols.get_mut(&queries).unwrap().insert(name, symbol);
         Ok(())
     }
 
-    pub fn get(&self, id: usize, name: String) -> Option<&Symbol> {
-        if self.symbols.get(&id).is_some() {
-            self.symbols.get(&id).unwrap().get(&name)
+    pub fn get(&self, file_id: FileId, id: usize, name: String) -> Option<&Symbol> {
+        let queries = self.query(file_id, id);
+
+        if self.symbols.get(&queries).is_some() {
+            self.symbols.get(&queries).unwrap().get(&name)
         } else {
             None
         }
-        // self.symbols.get(&id)
-        // self.symbols.get(&id).unwrap().get(&name)
     }
 
-    pub fn get_mut(&mut self, id: usize, name: String) -> Option<&mut Symbol> {
-        self.symbols.get_mut(&id).unwrap().get_mut(&name)
+    pub fn get_mut(&mut self, file_id: FileId, id: usize, name: String) -> Option<&mut Symbol> {
+        let queries = self.query(file_id, id);
+        self.symbols.get_mut(&queries).unwrap().get_mut(&name)
+    }
+
+    fn query(&self, file_id: FileId, id: usize) -> ScopeKey {
+        ScopeKey { file_id, id }
     }
 
     pub fn print_debug(&mut self) {
         println!("==== Symbol Manager ====");
-        self.symbols.iter().for_each(|(id, symbols)| {
-            println!("Id : {} count: {}", id, symbols.capacity());
+        self.symbols.iter().for_each(|(scope, symbols)| {
+            println!("file: {} , Id : {} count: {}", scope.file_id.0, scope.id, symbols.capacity());
             symbols.iter().for_each(|(name, symbol)| {
                 if let Some(f) = symbol.get_function() {
                     println!(
@@ -65,8 +90,8 @@ impl SymbolManager {
                         f.parameters
                             .iter()
                             .map(|p| { format!("{}: {}", p.name.clone(), p.var_type.clone()) })
-                            .collect::<Vec<_>>().join(", ")
-                            ,
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         f.return_type
                     );
                 } else if let Some(v) = symbol.get_variable() {
@@ -153,9 +178,12 @@ pub struct VariableSymbol {
 #[derive(Debug, Clone)]
 pub struct FunctionSymbol {
     // default information
+    pub file_id: FileId,
     pub name: String, // identifier for function
     pub parameters: Vec<ParameterInfo>,
     pub return_type: Type,
+    pub visibility: Visibility,
+    pub span: Span,
     // for now skip type inference
     // /// mark if type is Type::Inference
     // pub is_inferred: bool,

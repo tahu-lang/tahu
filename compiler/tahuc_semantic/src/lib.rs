@@ -29,6 +29,31 @@ impl<'a> Analyzer<'a> {
         }
     }
 
+    pub fn analyze_depedencies(&mut self, modules: &Vec<Module>) -> Database {
+        // phase 1 collect all ymbols, type
+        for module in modules {
+            self.database.add_file(module.file);
+            self.collector(module);
+        }
+        
+        for module in modules {
+            // phase 2 resolve symbol reference
+            self.resolve_reference(module);
+
+            // phase 3 type checking
+            self.type_checking(module);
+            
+            
+            // phase 4 control flow analyze
+            self.control_flow_analyze(module);
+        }
+
+        // collect error and report
+        self.compile_error();
+
+        self.database.clone()
+    }
+
     pub fn analyze(&mut self, module: &Module) -> Database {
         // phase 1 collect all ymbols, type
         self.collector(module);
