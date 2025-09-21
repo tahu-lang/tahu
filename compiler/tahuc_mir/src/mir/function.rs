@@ -1,8 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
-use tahuc_hir::hir::FunctionId;
+use tahuc_hir::hir::{FunctionId, HirVisibility};
 
-use crate::mir::{block::{MirBasicBlock, MirTerminator}, ty::MirType, BasicBlockId, LocalId};
+use crate::mir::{
+    BasicBlockId, LocalId,
+    block::{MirBasicBlock, MirTerminator},
+    ty::MirType,
+};
 
 #[derive(Debug, Clone)]
 pub struct MirFunction {
@@ -10,6 +14,7 @@ pub struct MirFunction {
     pub name: String,
     pub parameters: Vec<MirParameter>,
     pub return_type: MirType,
+    pub visibility: HirVisibility,
 
     pub basic_blocks: HashMap<BasicBlockId, MirBasicBlock>,
     pub block_order: Vec<BasicBlockId>,
@@ -37,12 +42,18 @@ pub struct MirParameter {
 }
 
 impl MirFunction {
-    pub fn new(id: FunctionId, name: String, return_type: MirType) -> Self {
+    pub fn new(
+        id: FunctionId,
+        name: String,
+        return_type: MirType,
+        vibility: HirVisibility,
+    ) -> Self {
         Self {
             id,
             name,
             parameters: Vec::new(),
             return_type,
+            visibility: vibility,
 
             basic_blocks: HashMap::new(),
             block_order: Vec::new(),

@@ -32,7 +32,14 @@ impl Builder {
                     MirOperand::Local(temp)
                 }
             }
-            // HirExpression::Ternary { condition, then_branch, else_branch } => {}
+            HirExpression::Ternary { condition, then_branch, else_branch } => {
+                let target = self.new_local(then_branch.get_type().to_mir_ty());
+                let condition = self.build_expression(condition, false);
+                let then_branch = self.build_expression(then_branch, false);
+                let else_branch = self.build_expression(else_branch, false);
+                self.select(target, condition, then_branch, else_branch);
+                MirOperand::Local(target)
+            }
             HirExpression::Binary {
                 left,
                 op,
@@ -54,7 +61,7 @@ impl Builder {
             } => {
                 let local_id = self.new_local(ty.to_mir_ty());
 
-                let target = if ty.to_mir_ty().is_void() {
+                let target = if !ty.to_mir_ty().is_void() {
                     Some(local_id)
                 } else {
                     None
@@ -97,7 +104,7 @@ impl Builder {
 
                 self.call(target, *callee, args, ty.to_mir_ty());
 
-                MirOperand::new_constant_null()
+                MirOperand::Local(local_id)
             }
             _ => {
                 panic!("Unsupported expression: {:?}", expression);

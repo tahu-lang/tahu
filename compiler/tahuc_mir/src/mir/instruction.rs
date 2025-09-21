@@ -1,7 +1,7 @@
 use tahuc_ast::nodes::op::{BinaryOp, UnaryOp};
 use tahuc_hir::hir::FunctionId;
 
-use crate::mir::{function::MirFunction, ty::{MirConstant, MirType}, LocalId};
+use crate::mir::{function::MirFunction, ty::{MirConstant, MirType}, BasicBlockId, LocalId};
 
 #[derive(Debug, Clone)]
 pub enum MirInstruction {
@@ -58,6 +58,21 @@ pub enum MirInstruction {
         function: FunctionId,
         arguments: Vec<MirOperand>,
         ty: MirType,
+    },
+
+    /// Branch instruction
+    Phi {
+        target: LocalId,
+        values: Vec<(MirOperand, BasicBlockId)>,
+        ty: MirType,
+    },
+
+    /// Select
+    Select {
+        target: LocalId,
+        condition: MirOperand,
+        then_branch: MirOperand,
+        else_branch: MirOperand,
     },
 }
 

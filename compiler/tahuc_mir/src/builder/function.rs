@@ -38,6 +38,7 @@ impl Builder {
             function.id,
             function.name.clone(),
             function.return_type.to_mir_ty(),
+            function.visibility.clone(),
         )
     }
 
