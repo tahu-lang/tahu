@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use tahuc_ast::{nodes::{ast::NodeId, declarations::Visibility}, Type};
+use tahuc_ast::{nodes::{ast::NodeId, declarations::Visibility}, ty::Type};
 use tahuc_span::{FileId, Span};
 
 #[derive(Hash, Eq, PartialEq, Debug, Clone)]

@@ -1,4 +1,4 @@
-use tahuc_ast::{nodes::ast::NodeId, Type};
+use tahuc_ast::{nodes::ast::NodeId, ty::Type};
 use tahuc_span::FileId;
 
 use crate::{error::SemanticError, scope::ScopeManager, symbol::{Symbol, SymbolManager, VariableSymbol}, type_manager::TypeManager};

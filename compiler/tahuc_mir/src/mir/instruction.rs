@@ -74,6 +74,41 @@ pub enum MirInstruction {
         then_branch: MirOperand,
         else_branch: MirOperand,
     },
+
+    /// Casting
+    Cast {
+        target: LocalId,
+        kind: CastKind,
+        value: MirOperand,
+        from: MirType,
+        to: MirType,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum CastKind {
+    /// No operation, used for type conversions that don't require any code generation.
+    NoOp,
+    /// Zero-extension
+    ZExt,
+    /// Sign-extension
+    SExt,
+    /// Truncation
+    Trunc,
+    /// Floating-point to unsigned integer
+    FPToUI,
+    /// Floating-point to signed integer
+    FPToSI,
+    /// Unsigned integer to floating-point
+    UIToFP,
+    /// Signed integer to floating-point
+    SIToFP,
+    /// Bitcast (reinterpret bits without changing value)
+    BitCast,
+    /// Pointer to integer
+    PtrToInt,
+    /// Integer to pointer
+    IntToPtr,
 }
 
 /// Memory Operand
@@ -111,5 +146,14 @@ impl MirOperand {
 
     pub fn new_constant_int(value: i64) -> Self {
         MirOperand::Constant(MirConstant::Integer(value))
+    }
+
+    pub fn is_parameter(&self, mir_func: &MirFunction) -> bool {
+        match self {
+            MirOperand::Local(id) => {
+                mir_func.is_parameter(*id)
+            }
+            _ => false,
+        }
     }
 }

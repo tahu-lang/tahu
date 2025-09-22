@@ -1,4 +1,4 @@
-use tahuc_ast::Type;
+use tahuc_ast::ty::Type;
 use tahuc_hir::hir::HirExpression;
 
 use crate::{builder::builder::Builder, mir::{instruction::MirOperand, ty::{MirType, ToMirType}}};
@@ -45,10 +45,18 @@ impl Builder {
         let idx = self.build_expression(&index, false);
 
         let temp_ptr = self.new_local(ty.clone());
-        self.get_element_ptr(temp_ptr, addr, vec![
-            MirOperand::new_constant_int(0),
-            idx
-        ], ty.clone());
+
+        let mut indices = vec![];
+
+        let is_parameter = addr.is_parameter(self.current_function.as_ref().unwrap());
+
+        if !(!is_parameter && array.get_type().to_mir_ty().is_string()) {
+            indices.push(MirOperand::new_constant_int(0));
+        }
+
+        indices.push(idx);
+
+        self.get_element_ptr(temp_ptr, addr, indices, ty.clone());
 
         if need_addr {
             MirOperand::Local(temp_ptr)

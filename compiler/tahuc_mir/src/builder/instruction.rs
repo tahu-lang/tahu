@@ -4,7 +4,7 @@ use tahuc_hir::hir::FunctionId;
 use crate::{
     builder::builder::Builder,
     mir::{
-        instruction::{MirInstruction, MirOperand}, ty::MirType, BasicBlockId, LocalId
+        instruction::{CastKind, MirInstruction, MirOperand}, ty::MirType, BasicBlockId, LocalId
     },
 };
 
@@ -108,6 +108,23 @@ impl Builder {
             condition,
             then_branch,
             else_branch,
+        });
+    }
+
+    pub(crate) fn cast(
+        &mut self,
+        target: LocalId,
+        kind: CastKind,
+        value: MirOperand,
+        from: MirType,
+        to: MirType,
+    ) {
+        self.add_instruction(MirInstruction::Cast {
+            target,
+            kind,
+            value,
+            from,
+            to,
         });
     }
 

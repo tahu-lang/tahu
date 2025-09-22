@@ -1,4 +1,4 @@
-use tahuc_ast::{Type, nodes::op::UnaryOp};
+use tahuc_ast::{ty::Type, nodes::op::UnaryOp};
 use tahuc_hir::hir::HirExpression;
 
 use crate::{builder::builder::Builder, mir::{instruction::MirOperand, ty::ToMirType}};
@@ -18,6 +18,34 @@ impl Builder {
                 self.load(temp, operand, ty.to_mir_ty());
                 MirOperand::Local(temp)
             }
+            UnaryOp::PostDecrement
+            | UnaryOp::PostIncrement
+            | UnaryOp::PreDecrement
+            | UnaryOp::PreIncrement => {
+                let ty = operand.get_type().to_mir_ty();
+                let target = self.new_local(ty.clone());
+
+                let binary_op = match op {
+                    UnaryOp::PreIncrement | UnaryOp::PostIncrement => {
+                        tahuc_ast::nodes::op::BinaryOp::Add
+                    }
+                    UnaryOp::PreDecrement | UnaryOp::PostDecrement => {
+                        tahuc_ast::nodes::op::BinaryOp::Sub
+                    }
+                    _ => unreachable!(),
+                };
+
+                let left = MirOperand::new_constant_int(1);
+                let right = self.build_expression(operand, false);
+
+                self.binary_op(target, left, right, binary_op, ty.clone());
+
+                let right_ptr = self.build_expression(operand, true);
+
+                self.store(right_ptr, MirOperand::Local(target), ty.clone());
+
+                MirOperand::Local(target)
+            }
             _ => {
                 let operand = self.build_expression(operand, false);
                 let temp = self.new_local(ty.to_mir_ty());
@@ -26,6 +54,4 @@ impl Builder {
             }
         }
     }
-
-    fn build_unary_to_binary(&mut self, op: UnaryOp, operand: &HirExpression) {}
 }

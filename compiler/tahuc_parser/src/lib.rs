@@ -1,12 +1,7 @@
 use tahuc_ast::{
-    AstBuilder, Module, Type,
     nodes::{
-        Expression,
-        ast::AstNode,
-        declarations::{Declaration, Parameter, ParameterKind, Visibility},
-        expressions::ExpressionKind,
-        statements::Block,
-    },
+        ast::AstNode, declarations::{Declaration, Parameter, ParameterKind, Visibility}, expressions::ExpressionKind, statements::Block, Expression
+    }, ty::{PrimitiveType, Type}, AstBuilder, Module
 };
 use tahuc_diagnostics::reporter::DiagnosticReporter;
 use tahuc_lexer::{
@@ -17,7 +12,6 @@ use tahuc_span::{FileId, Span};
 
 use crate::error::ParserError;
 
-mod declaration;
 mod error;
 mod expr;
 mod shared;
@@ -119,7 +113,6 @@ impl<'a> Parser<'a> {
                 }
                 self.declaration(visibility)
             }
-            TokenKind::Class => self.class_declaration(visibility),
             TokenKind::Fn => {
                 let func = self.function_declaration(visibility)?;
                 Ok(self.builder.fn_declaration(func.span, self.file_id, func))
@@ -134,14 +127,6 @@ impl<'a> Parser<'a> {
             TokenKind::Pub => {
                 self.advance();
                 self.declaration(Visibility::Public)
-            }
-            TokenKind::Priv => {
-                self.advance();
-                self.declaration(Visibility::Private)
-            }
-            TokenKind::Prot => {
-                self.advance();
-                self.declaration(Visibility::Protected)
             }
             _ => {
                 let token = self.peek().clone();
@@ -269,19 +254,82 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier => {
                 let type_name = self.advance().lexeme.clone();
                 Ok(match type_name.as_str() {
-                    "char" => Type::Char,
+                    "i8" => Type::Primitive(PrimitiveType::I8),
+                    "i16" => Type::Primitive(PrimitiveType::I16),
+                    "i32" => Type::Primitive(PrimitiveType::I32),
+                    "i64" => Type::Primitive(PrimitiveType::I64),
+                    "isize" => Type::Primitive(PrimitiveType::Isize),
+                    "u8" => Type::Primitive(PrimitiveType::U8),
+                    "u16" => Type::Primitive(PrimitiveType::U16),
+                    "u32" => Type::Primitive(PrimitiveType::U32),
+                    "u64" => Type::Primitive(PrimitiveType::U64),
+                    "usize" => Type::Primitive(PrimitiveType::Usize),
+                    "f32" => Type::Primitive(PrimitiveType::F32),
+                    "f64" => Type::Primitive(PrimitiveType::F64),
+                    
+                    "bool" => Type::Primitive(PrimitiveType::Bool),
+                    "char" => Type::Primitive(PrimitiveType::Char),
+                    "unit" => Type::Primitive(PrimitiveType::Unit),
                     "string" => Type::String,
                     "int" => Type::Int,
                     "double" => Type::Double,
-                    "bool" => Type::Boolean,
-                    "void" => Type::Void,
                     _ => Type::Named(type_name),
                 })
             }
+            TokenKind::I8 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::I8))
+            }
+            TokenKind::I16 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::I16))
+            }
+            TokenKind::I32 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::I32))
+            }
+            TokenKind::I64 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::I64))
+            }
+            TokenKind::Isize => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::Isize))
+            }
+            TokenKind::U8 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::U8))
+            }
+            TokenKind::U16 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::U16))
+            }
+            TokenKind::U32 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::U32))
+            }
+            TokenKind::U64 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::U64))
+            }
+            TokenKind::Usize => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::Usize))
+            }
+
+            TokenKind::Bool => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::Bool))
+            }
             TokenKind::Char => {
                 self.advance();
-                Ok(Type::Char)
+                Ok(Type::Primitive(PrimitiveType::Char))
             }
+            TokenKind::Unit => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::Unit))
+            }
+
             TokenKind::String => {
                 self.advance();
                 Ok(Type::String)
@@ -294,14 +342,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Type::Double)
             }
-            TokenKind::Boolean => {
-                self.advance();
-                Ok(Type::Boolean)
-            }
-            TokenKind::Void => {
-                self.advance();
-                Ok(Type::Void)
-            }
+            
             TokenKind::Mul => {
                 self.advance();
                 Ok(Type::Pointer(Box::new(self.parse_type()?)))
@@ -366,7 +407,6 @@ impl<'a> Parser<'a> {
             match self.peek().kind {
                 TokenKind::Fn
                 | TokenKind::Var
-                | TokenKind::Class
                 | TokenKind::Pub
                 | TokenKind::Eof => return,
                 _ => {

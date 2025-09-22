@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use tahuc_ast::{nodes::ast::NodeId, Type};
+use tahuc_ast::{nodes::ast::NodeId, ty::Type};
 use tahuc_span::FileId;
 
 #[derive(Debug, Clone)]

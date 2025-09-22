@@ -1,13 +1,14 @@
 use std::collections::HashMap;
 
 use tahuc_ast::{
-    Module, Type,
+    Module,
     nodes::{
         Expression,
         declarations::{Declaration, DeclarationKind},
         expressions::{Argument, ExpressionKind},
         statements::{Block, Statement, StatementKind, Variable},
     },
+    ty::Type,
 };
 use tahuc_span::FileId;
 
