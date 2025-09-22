@@ -1,14 +1,15 @@
-use tahuc_ast::Type;
+use tahuc_ast::ty::Type;
 use tahuc_hir::hir::HirExpression;
 
 use crate::{
     builder::builder::Builder,
-    mir::{instruction::MirOperand, ty::ToMirType},
+    mir::{instruction::{MirOperand}, ty::ToMirType},
 };
 
 pub(crate) mod array;
 pub(crate) mod binary;
 pub(crate) mod unary;
+pub(crate) mod cast;
 
 impl Builder {
     pub(crate) fn build_expression(
@@ -105,6 +106,12 @@ impl Builder {
                 self.call(target, *callee, args, ty.to_mir_ty());
 
                 MirOperand::Local(local_id)
+            }
+            HirExpression::Cast { value, from, ty } => {
+                self.build_cast(value, from, ty)
+            }
+            HirExpression::Grouping { value, .. } => {
+                self.build_expression(value, false)
             }
             _ => {
                 panic!("Unsupported expression: {:?}", expression);

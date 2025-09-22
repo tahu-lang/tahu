@@ -1,4 +1,4 @@
-use tahuc_ast::{nodes::op::AssignmentOp, Type};
+use tahuc_ast::{nodes::op::AssignmentOp, ty::Type};
 use tahuc_hir::hir::{HirExpression, HirLValue};
 
 use crate::{builder::builder::Builder, mir::{instruction::MirOperand, ty::ToMirType}};

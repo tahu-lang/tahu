@@ -7,3 +7,4 @@ edition = "2024"
 tahuc_lexer = { path = "../tahuc_lexer" }
 tahuc_ast = { path = "../tahuc_ast" }
 tahuc_semantic = { path = "../tahuc_semantic" }
+tahuc_span = { path = "../tahuc_span" }

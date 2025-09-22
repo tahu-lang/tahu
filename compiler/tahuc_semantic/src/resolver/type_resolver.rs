@@ -1,7 +1,7 @@
 use tahuc_ast::{
     nodes::{
         ast::NodeId, declarations::{Declaration, DeclarationKind}, expressions::ExpressionKind, op::{AssignmentOp, BinaryOp, UnaryOp}, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
-    }, Module, Type
+    }, ty::{PrimitiveType, Type}, Module
 };
 use tahuc_lexer::token::Literal;
 use tahuc_span::FileId;
@@ -223,10 +223,30 @@ impl<'a> TypeAnalyzer<'a> {
             ExpressionKind::Literal(literal) => {
                 let result = match literal {
                     Literal::String(_) => Type::String,
-                    Literal::Char(_) => Type::Char,
-                    Literal::Integer(_) => Type::Int,
-                    Literal::Boolean(_) => Type::Boolean,
-                    Literal::Double(_) => Type::Double,
+                    Literal::Char(_) => Type::Primitive(PrimitiveType::Char),
+                    Literal::Integer(_) => {
+                        if let Some(expected) = expected {
+                            if expected.is_integer() {
+                                expected
+                            } else {
+                                Type::Error
+                            }
+                        } else {
+                            Type::Int
+                        }
+                    },
+                    Literal::Bool(_) => Type::Primitive(PrimitiveType::Bool),
+                    Literal::Double(_) => {
+                        if let Some(expected) = expected {
+                            if expected.is_float() {
+                                expected
+                            } else {
+                                Type::Error
+                            }
+                        } else {
+                            Type::Double
+                        }
+                    },
                     Literal::Null => {
                         match expected {
                             Some(Type::Nullable(inner)) => {
@@ -279,9 +299,9 @@ impl<'a> TypeAnalyzer<'a> {
                 Type::Error
             }
             ExpressionKind::Ternary { condition, then, otherwise } => {
-                let cond = self.resolve_expression(&condition, Some(Type::Boolean));
+                let cond = self.resolve_expression(&condition, Some(Type::Primitive(PrimitiveType::Bool)));
                 println!("DEBUG HIR: ternary cond {}", cond);
-                if cond != Type::Boolean {
+                if cond != Type::Primitive(PrimitiveType::Bool) {
                     self.db.report_error(SemanticError::Raw {
                         message: "Ternary condition must be boolean".to_string(),
                         span: condition.span,
@@ -443,7 +463,7 @@ impl<'a> TypeAnalyzer<'a> {
 
                 let elem_type = match arr_ty {
                     Type::Array { ty, .. } => *ty,
-                    Type::String => Type::Char,
+                    Type::String => Type::Primitive(PrimitiveType::Char),
                     _ => {
                         println!("Error: trying to index non-array");
                         // error: trying to index non-array
@@ -460,9 +480,9 @@ impl<'a> TypeAnalyzer<'a> {
                 self.add_type(expression.id, obj_ty.clone());
                 obj_ty.clone()
             }
-            ExpressionKind::Cast { ty, expression } => {
-                let expr_ty = self.resolve_expression(&expression, None);
-                if !self.is_type_compatible(&expr_ty, &ty) {
+            ExpressionKind::Cast { ty, expression: expr } => {
+                let expr_ty = self.resolve_expression(&expr, None);
+                if !self.is_type_compatible_casting(&expr_ty, &ty) {
                     self.db.report_error(SemanticError::Raw {
                         message: format!("Cannot cast {:?} to {:?}", expr_ty, ty),
                         span: expression.span,
@@ -550,16 +570,20 @@ impl<'a> TypeAnalyzer<'a> {
             | BinaryOp::Gt
             | BinaryOp::Ge => {
                 // "==" | "!=" | "<" | "<=" | ">" | ">=" => {
-                if self.is_type_compatible(left, right) || self.is_type_compatible(right, left) {
-                    Ok(Type::Boolean)
-                } else {
+                if left.can_compare(right) || right.can_compare(left) {
+                    return Ok(Type::Primitive(PrimitiveType::Bool));
+                }
+                // if self.is_type_compatible(left, right) || self.is_type_compatible(right, left) {
+                //     Ok(Type::Primitive(PrimitiveType::Bool))
+                // } 
+                else {
                     Err(format!("Cannot compare {:?} and {:?}", left, right))
                 }
             }
             BinaryOp::And | BinaryOp::Or => {
                 // "&&" | "||" => {
                 match (left, right) {
-                    (Type::Boolean, Type::Boolean) => Ok(Type::Boolean),
+                    (Type::Primitive(PrimitiveType::Bool), Type::Primitive(PrimitiveType::Bool)) => Ok(Type::Primitive(PrimitiveType::Bool)),
                     _ => Err(format!(
                         "Logical operator '{:?}' requires boolean operands, got {:?} and {:?}",
                         operator, left, right
@@ -570,6 +594,8 @@ impl<'a> TypeAnalyzer<'a> {
             | BinaryOp::Shl | BinaryOp::Shr => {
                 match (left, right) {
                     (Type::Int, Type::Int) => Ok(Type::Int),
+                    (Type::Primitive(PrimitiveType::I32), Type::Int) => Ok(Type::Int),
+                    (Type::Int, Type::Primitive(PrimitiveType::I32)) => Ok(Type::Int),
                     _ => Err(format!(
                         "Bitwise operator '{:?}' requires integer operands, got {:?} and {:?}",
                         operator, left, right
@@ -593,6 +619,14 @@ impl<'a> TypeAnalyzer<'a> {
         }
     }
 
+    pub fn is_type_compatible_casting(&self, from_type: &Type, to_type: &Type) -> bool {
+        match (from_type, to_type) {
+            (Type::Int, Type::Double) => true,
+            (Type::Primitive(PrimitiveType::Char), Type::Int) => true,
+            _ => false,
+        }
+    }
+
     pub fn is_type_compatible(&self, from_type: &Type, to_type: &Type) -> bool {
         match (from_type, to_type) {
             // Exact match
@@ -600,7 +634,7 @@ impl<'a> TypeAnalyzer<'a> {
 
             // Implicit conversions
             (Type::Int, Type::Double) => true,
-            (Type::Char, Type::Int) => true,
+            (Type::Primitive(PrimitiveType::Char), Type::Int) => true,
 
             // Null compatibility (jika ada Type::Null)
             (Type::Nullable(_), _) => true,

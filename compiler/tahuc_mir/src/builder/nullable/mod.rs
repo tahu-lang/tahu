@@ -17,7 +17,7 @@ impl Builder {
         inner_ty: &MirType,
     ) {
         // field 0: is_null
-        let is_null_ptr = self.new_local(MirType::Boolean);
+        let is_null_ptr = self.new_local(MirType::Bool);
         self.get_element_ptr(
             is_null_ptr,
             addr.clone(),
@@ -33,14 +33,14 @@ impl Builder {
             HirExpression::Literal {
                 value: HirLiteral::Null(_),
                 ..
-            } => MirOperand::Constant(MirConstant::Boolean(true)),
-            _ => MirOperand::Constant(MirConstant::Boolean(false)),
+            } => MirOperand::Constant(MirConstant::Bool(true)),
+            _ => MirOperand::Constant(MirConstant::Bool(false)),
         };
 
         self.store(
             MirOperand::Local(is_null_ptr),
             is_null_value,
-            MirType::Boolean,
+            MirType::Bool,
         );
 
         // field 1: value
@@ -67,42 +67,6 @@ impl Builder {
         }
     }
 
-    // pub(crate) fn nullable_field(
-    //     &mut self,
-    //     ptr: MirOperand,
-    //     access: NullableAccess,
-    //     base_ty: MirType,
-    //     inner_ty: MirType,
-    // ) -> MirOperand {
-    //     let index = match access {
-    //         NullableAccess::IsNull => 0,
-    //         NullableAccess::Value => 1,
-    //     };
-
-    //     let field_ptr = self.new_local(base_ty.clone());
-    //     self.get_element_ptr(
-    //         field_ptr,
-    //         ptr.clone(),
-    //         vec![
-    //             MirOperand::new_constant_int(0),
-    //             MirOperand::new_constant_int(index),
-    //         ],
-    //         base_ty.clone(),
-    //     );
-
-    //     if matches!(access, NullableAccess::Value) {
-    //         // Load hanya kalau butuh value
-    //         let temp = self.new_local(inner_ty.clone());
-    //         self.load(temp, MirOperand::Local(field_ptr), inner_ty.clone());
-    //         MirOperand::Local(temp)
-    //     } else {
-    //         let temp = self.new_local(MirType::Boolean);
-    //         self.load(temp, MirOperand::Local(field_ptr), MirType::Boolean);
-    //         // is_null cukup ambil pointer
-    //         MirOperand::Local(temp)
-    //     }
-    // }
-
     pub(crate) fn nullable_access_is_null(
         &mut self,
         ptr: MirOperand,
@@ -119,8 +83,8 @@ impl Builder {
             base_ty.clone(),
         );
 
-        let temp = self.new_local(MirType::Boolean);
-        self.load(temp, MirOperand::Local(field_ptr), MirType::Boolean);
+        let temp = self.new_local(MirType::Bool);
+        self.load(temp, MirOperand::Local(field_ptr), MirType::Bool);
         MirOperand::Local(temp)
     }
 

@@ -13,8 +13,6 @@ pub type Declaration = AstNode<DeclarationKind>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeclarationKind {
-    Interface(Interface),
-    Class(Class),
     Fn(Function),
     Variable(Variable),
     Extern(ExternFn),
@@ -32,7 +30,6 @@ pub struct ExternFn {
 pub enum Visibility {
     Public,
     Private,
-    Protected,
 }
 
 impl Visibility {
@@ -42,32 +39,6 @@ impl Visibility {
             _ => false,
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Interface {
-    pub visibility: Visibility,
-    pub name: String,
-    pub methods: Vec<Function>,
-    pub extends: Vec<String>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Class {
-    pub visibility: Visibility,
-    pub name: String,
-    pub super_class: Option<String>,
-    pub interfaces: Vec<String>,
-    pub is_abstract: bool,
-    pub body: ClassBody,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ClassBody {
-    pub fields: Vec<Variable>,
-    pub methods: Vec<Function>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1,4 +1,4 @@
-use tahuc_ast::{Type, nodes::op::BinaryOp};
+use tahuc_ast::{ty::Type, nodes::op::BinaryOp};
 use tahuc_hir::hir::HirExpression;
 
 use crate::{builder::builder::Builder, mir::{instruction::MirOperand, ty::ToMirType}};

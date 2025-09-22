@@ -1,4 +1,4 @@
-use tahuc_ast::{nodes::op::{AssignmentOp, BinaryOp, UnaryOp}, Type};
+use tahuc_ast::{nodes::op::{AssignmentOp, BinaryOp, UnaryOp}, ty::{PrimitiveType, Type}};
 use tahuc_span::FileId;
 
 pub type FunctionId = u32;
@@ -148,8 +148,13 @@ pub enum HirExpression {
         arguments: Vec<HirExpression>,
         ty: Type,
     },
+    Grouping {
+        value: Box<HirExpression>,
+        ty: Type,
+    },
     Cast {
         value: Box<HirExpression>,
+        from: Type,
         ty: Type,
     },
 }
@@ -175,6 +180,7 @@ impl HirExpression {
             HirExpression::MethodCall { ty, .. } => ty.clone(),
             HirExpression::Call { ty, .. } => ty.clone(),
             HirExpression::Cast { ty, .. } => ty.clone(),
+            HirExpression::Grouping { ty, .. } => ty.clone(),
         }
     }
 }
@@ -195,7 +201,7 @@ pub enum HirLiteral {
     Char(char),
     Integer(i64),
     Float(f64),
-    Boolean(bool),
+    Bool(bool),
     Null(Type),
 }
 
@@ -203,10 +209,10 @@ impl HirLiteral {
     pub fn get_type(&self) -> Type {
         match self {
             HirLiteral::String(_) => Type::String,
-            HirLiteral::Char(_) => Type::Char,
+            HirLiteral::Char(_) => Type::Primitive(PrimitiveType::Char),
             HirLiteral::Integer(_) => Type::Int,
             HirLiteral::Float(_) => Type::Double,
-            HirLiteral::Boolean(_) => Type::Boolean,
+            HirLiteral::Bool(_) => Type::Primitive(PrimitiveType::Bool),
             HirLiteral::Null(ty) => ty.clone(),
         }
     }

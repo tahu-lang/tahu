@@ -1,89 +1,13 @@
-use std::fmt;
-
 use tahuc_lexer::token::Literal;
 use tahuc_span::{FileId, Span};
 
-use crate::nodes::{
-    Expression,
-    ast::{AstNode, NodeId},
-    declarations::{Class, Declaration, DeclarationKind, ExternFn, Function, ParameterKind},
-    expressions::{Argument, ExpressionKind, FunctionCall, TemplatePart},
-    op::{AssignmentOp, BinaryOp, UnaryOp},
-    statements::{IfStatement, Statement, StatementKind, Variable, WhileStatement},
-};
+use crate::{nodes::{
+    ast::{AstNode, NodeId}, declarations::{Declaration, DeclarationKind, ExternFn, Function, ParameterKind}, expressions::{Argument, ExpressionKind, FunctionCall, TemplatePart}, op::{AssignmentOp, BinaryOp, UnaryOp}, statements::{IfStatement, Statement, StatementKind, Variable, WhileStatement}, Expression
+}, ty::Type};
 
 pub mod nodes;
 pub mod printer;
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Type {
-    String,
-    Char,
-    Int,
-    Double,
-    Boolean,
-    Void,
-    Null,
-    Array {
-        ty: Box<Type>,
-        size: usize
-    },
-    Nullable(Box<Type>),
-    Pointer(Box<Type>),
-
-    // placeholder
-    Inferred,
-    // for error
-    Error,
-
-    Function(Vec<Type>, Box<Type>),
-
-    // for custom type
-    Named(String),
-}
-
-impl Type {
-    pub fn is_inferred(&self) -> bool {
-        matches!(self, Type::Inferred)
-    }
-
-    pub fn is_nullable(&self) -> bool {
-        match self {
-            Type::Nullable(_) => true,
-            _ => false,
-        }
-    }
-}
-
-impl fmt::Display for Type {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Type::String => write!(f, "String"),
-            Type::Char => write!(f, "Char"),
-            Type::Int => write!(f, "Int"),
-            Type::Double => write!(f, "Double"),
-            Type::Boolean => write!(f, "Boolean"),
-            Type::Void => write!(f, "Void"),
-            Type::Null => write!(f, "Null"),
-            Type::Array { ty, size } => write!(f, "[{} x {}]", size, ty),
-            Type::Nullable(ty) => write!(f, "{}?", ty),
-            Type::Pointer(type_) => write!(f, "*{}", type_),
-            Type::Inferred => write!(f, "Inferred"),
-            Type::Error => write!(f, "Error"),
-            Type::Function(params, type_) => write!(
-                f,
-                "({}) => {}",
-                params
-                    .iter()
-                    .map(|p| p.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", "),
-                type_
-            ),
-            Type::Named(name) => write!(f, "{}", name),
-        }
-    }
-}
+pub mod ty;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
@@ -126,10 +50,6 @@ impl AstBuilder {
                 span: span,
             }),
         )
-    }
-
-    pub fn class_declaration(&mut self, span: Span, file_id: FileId, class: Class) -> Declaration {
-        AstNode::new(self.next_id(), span, file_id, DeclarationKind::Class(class))
     }
 
     pub fn fn_declaration(

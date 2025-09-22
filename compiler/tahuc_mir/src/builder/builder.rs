@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use tahuc_ast::Type;
+use tahuc_ast::ty::Type;
 use tahuc_hir::hir::{HirBlock, HirLiteral, HirModule, VariableId};
 
 use crate::mir::{
@@ -158,7 +158,7 @@ impl Builder {
             HirLiteral::Char(c) => MirConstant::Char(*c),
             HirLiteral::Integer(i) => MirConstant::Integer(*i),
             HirLiteral::Float(d) => MirConstant::Float(*d),
-            HirLiteral::Boolean(b) => MirConstant::Boolean(*b),
+            HirLiteral::Bool(b) => MirConstant::Bool(*b),
             HirLiteral::Null(ty) => match ty {
                 Type::Nullable(inner) => MirConstant::Null(inner.to_mir_ty()),
                 _ => MirConstant::Null(ty.to_mir_ty()),

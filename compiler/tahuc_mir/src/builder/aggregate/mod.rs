@@ -1,4 +1,4 @@
-use tahuc_ast::Type;
+use tahuc_ast::ty::Type;
 use tahuc_hir::hir::HirExpression;
 
 use crate::{

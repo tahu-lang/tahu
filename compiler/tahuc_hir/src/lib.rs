@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tahuc_ast::{
     nodes::{
         declarations::{DeclarationKind, ExternFn, Function}, expressions::{Argument, ExpressionKind}, op::UnaryOp, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
-    }, Module, Type
+    }, Module, ty::Type,
 };
 use tahuc_lexer::token::Literal;
 use tahuc_semantic::database::Database;
@@ -33,7 +33,6 @@ impl Visibility for tahuc_ast::nodes::declarations::Visibility {
         match self {
             tahuc_ast::nodes::declarations::Visibility::Public => HirVisibility::Public,
             tahuc_ast::nodes::declarations::Visibility::Private => HirVisibility::Private,
-            tahuc_ast::nodes::declarations::Visibility::Protected => HirVisibility::Private,
         }
     }
 }
@@ -559,12 +558,21 @@ impl<'a> Hir<'a> {
                     ty: self.get_type(callee.function.id).unwrap().clone(),
                 })
             }
-            // ExpressionKind::Grouping(group) => {}
+            ExpressionKind::Grouping(group) => {
+                let expr = self.lower_expression(&group)?;
+                Ok(HirExpression::Grouping {
+                    value: Box::new(expr),
+                    ty: self.get_type(group.id).unwrap().clone(),
+                })
+            }
             ExpressionKind::Cast { ty, expression } => {
+                let from_ty = self.get_type(expression.id).unwrap().clone();
+
                 let expr = self.lower_expression(&expression)?;
 
                 Ok(HirExpression::Cast {
                     value: Box::new(expr),
+                    from: from_ty,
                     ty: ty.clone(),
                 })
             }
@@ -581,7 +589,7 @@ impl<'a> Hir<'a> {
             Literal::Char(char) => HirLiteral::Char(*char),
             Literal::Integer(int) => HirLiteral::Integer(*int),
             Literal::Double(float) => HirLiteral::Float(*float),
-            Literal::Boolean(bool) => HirLiteral::Boolean(*bool),
+            Literal::Bool(bool) => HirLiteral::Bool(*bool),
             Literal::Null => HirLiteral::Null(ty),
         }
     }

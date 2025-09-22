@@ -1,4 +1,4 @@
-use tahuc_ast::{nodes::op::UnaryOp, Type};
+use tahuc_ast::{nodes::op::UnaryOp, ty::Type};
 use tahuc_diagnostics::{diagnostic::Diagnostic, suggestion::Suggestion};
 use tahuc_span::Span;
 

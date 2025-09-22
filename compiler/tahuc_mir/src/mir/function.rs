@@ -117,6 +117,10 @@ impl MirFunction {
         id
     }
 
+    pub fn is_parameter(&self, id: LocalId) -> bool {
+        self.parameters.iter().any(|param| param.id == id)
+    }
+
     /// Create a new basic block
     pub fn new_block(&mut self, name: &str) -> BasicBlockId {
         let id = self.next_block_id;

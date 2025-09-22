@@ -12,8 +12,6 @@ pub enum TokenKind {
     Import,
     From,
     Interface,
-    Abstract,
-    Class,
     Enum,
     Self_,
     Fn,
@@ -27,8 +25,6 @@ pub enum TokenKind {
 
     // Visibility
     Pub,
-    Priv,
-    Prot,
     // Control Flow
     If,
     Else,
@@ -43,13 +39,18 @@ pub enum TokenKind {
     Continue,
     Return,
     Match,
+
     // data type
+    // primitive
+    I8, I16, I32, I64, Isize,
+    U8, U16, U32, U64, Usize,
+    F32, F64,
     Char,
     String,
     Integer,
     Double,
-    Boolean,
-    Void,
+    Bool,
+    Unit,
 
     /// Type & Cast
     Is, // is  type check
@@ -146,7 +147,7 @@ pub enum Literal {
     Char(char),
     Integer(i64),
     Double(f64),
-    Boolean(bool),
+    Bool(bool),
     Null,
 }
 
@@ -157,9 +158,6 @@ impl TokenKind {
             "import" => TokenKind::Import,
             "from" => TokenKind::From,
             "as" => TokenKind::As,
-            "interface" => TokenKind::Interface,
-            "abstract" => TokenKind::Abstract,
-            "class" => TokenKind::Class,
             "enum" => TokenKind::Enum,
             "self" => TokenKind::Self_,
 
@@ -182,17 +180,27 @@ impl TokenKind {
             "match" => TokenKind::Match,
 
             // data type
+            "i8" => TokenKind::I8,
+            "i16" => TokenKind::I16,
+            "i32" => TokenKind::I32,
+            "i64" => TokenKind::I64,
+            "isize" => TokenKind::Isize,
+            "u8" => TokenKind::U8,
+            "u16" => TokenKind::U16,
+            "u32" => TokenKind::U32,
+            "u64" => TokenKind::U64,
+            "usize" => TokenKind::Usize,
+            "f32" => TokenKind::F32,
+            "f64" => TokenKind::F64,
             "string" => TokenKind::String,
-            "cahr" => TokenKind::Char,
+            "char" => TokenKind::Char,
             "integer" => TokenKind::Integer,
             "double" => TokenKind::Double,
-            "boolean" => TokenKind::Boolean,
-            "void" => TokenKind::Void,
+            "bool" => TokenKind::Bool,
+            "unit" => TokenKind::Unit,
 
             // visibility
             "pub" => TokenKind::Pub,
-            "priv" => TokenKind::Priv,
-            "prot" => TokenKind::Prot,
 
             // modifier
             "const" => TokenKind::Const,
@@ -202,8 +210,8 @@ impl TokenKind {
             "is" => TokenKind::Is,
 
             // literal
-            "true" => TokenKind::Literal(Literal::Boolean(true)),
-            "false" => TokenKind::Literal(Literal::Boolean(false)),
+            "true" => TokenKind::Literal(Literal::Bool(true)),
+            "false" => TokenKind::Literal(Literal::Bool(false)),
             "null" => TokenKind::Literal(Literal::Null),
             _ => TokenKind::Identifier,
         }
