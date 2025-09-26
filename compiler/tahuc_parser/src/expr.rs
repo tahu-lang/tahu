@@ -1,5 +1,5 @@
 use tahuc_ast::nodes::{
-    expressions::{Argument, TemplatePart}, op::{BinaryOp, UnaryOp}, Expression
+    ast::AstNode, expressions::{Argument, ExpressionKind, StructLiteralField, TemplatePart}, op::{BinaryOp, UnaryOp}, Expression
 };
 use tahuc_lexer::token::TokenKind;
 
@@ -17,7 +17,8 @@ impl<'a> Parser<'a> {
         if self.check(TokenKind::Question) {
             self.advance();
             let true_expr = self.expression_ternary()?; // Right-associative
-            self.consume(TokenKind::Colon, "Expected ':' after ternary true expression")?;
+            let colon = self.consume(TokenKind::Colon, "Expected ':' after ternary true expression").cloned();
+            self.report_error(colon);
             let false_expr = self.expression_ternary()?; // Right-associative
             let span = self.make_span_fspan(expr.span, false_expr.span);
             expr = self.builder.ternary(span, self.file_id, expr, true_expr, false_expr);
@@ -161,7 +162,8 @@ impl<'a> Parser<'a> {
                 TokenKind::LeftBracket => {
                     self.advance();
                     let index = self.expression()?;
-                    self.consume(TokenKind::RightBracket, "Expected ']' after array index")?;
+                    let right_bracket = self.consume(TokenKind::RightBracket, "Expected ']' after array index").cloned();
+                    self.report_error(right_bracket);
                     let end_token = self.get_last_span();
                     let span = self.make_span_fspan(expr.span, end_token);
                     expr = self.builder.array_access(span, self.file_id, expr, index);
@@ -196,16 +198,88 @@ impl<'a> Parser<'a> {
                     if !self.check(TokenKind::RightParen) {
                         arguments = self.parse_arguments()?;
                     }
-                    self.consume(TokenKind::RightParen, "Expected ')' after arguments")?;
+                    let right_parent = self.consume(TokenKind::RightParen, "Expected ')' after arguments").cloned();
+                    self.report_error(right_parent);
                     let span = self.get_last_span();
                     let span = self.make_span_fspan(expr.span, span);
                     expr = self.builder.function_call(span, self.file_id, expr, arguments);
+                }
+                TokenKind::LeftBrace => {
+                    match &expr.kind {
+                        ExpressionKind::Identifier(_) => {
+                            if self.context.is_statement() {
+                                break;
+                            }
+
+                            let span = self.get_last_span();
+                            self.advance();
+                            let fields = self.parse_struct_fields()?;
+
+                            let right_brace = self.consume(TokenKind::RightBrace, "Expected '}' after struct fields").cloned();
+                            self.report_error(right_brace);
+                            let end_span = self.get_last_span();
+                            let span = self.make_span_fspan(span, end_span);
+                            expr = self.builder.build_struct_literal(span, self.file_id, expr, fields);
+                        }
+                        _ => {
+                            break;
+                        }
+                    }
                 }
                 _ => break,
             }
         }
 
         Ok(expr)
+    }
+
+    fn parse_struct_fields(&mut self) -> Result<Vec<AstNode<StructLiteralField>>, ParserError> {
+        let mut fields = Vec::new();
+        
+        while !self.is_at_end() && !self.check(TokenKind::RightBrace) {
+            // Parse field name
+            let start_span = self.current_token().span.clone();
+            let field_name_token = self.current_token().clone();
+            let ident = self.consume(TokenKind::Identifier, "Expected field name").cloned();
+            self.report_error(ident);
+            let field_name = field_name_token.lexeme.clone();
+
+            let name = self.builder.identifier(
+                field_name_token.span,
+                self.file_id,
+                field_name.clone()
+            );
+
+            let value = if self.check(TokenKind::Colon) {
+                // Named field: name: "John"
+                self.advance(); // consume ':'
+                Some(self.expression()?)
+            } else {
+                None
+            };
+
+            let end_span = self.get_last_span();
+            let span = self.make_span_fspan(start_span, end_span);
+            fields.push(self.builder.build_struct_literal_field(span, self.file_id, name, value));
+            
+            
+            // Handle comma separation
+            if self.check(TokenKind::Comma) {
+                self.advance();
+                // Allow trailing comma
+                if self.check(TokenKind::RightBrace) {
+                    break;
+                }
+            } else if !self.check(TokenKind::RightBrace) {
+                return Err(ParserError::Expected {
+                    expected: "expected ',' or '}'".to_string(),
+                    found: self.current_token().lexeme.clone(),
+                    span: self.current_token().span,
+                });
+            }
+        }
+        
+        Ok(fields)
     }
 
     fn parse_arguments(&mut self) -> Result<Vec<Argument>, ParserError> {
@@ -249,18 +323,6 @@ impl<'a> Parser<'a> {
         } else {
             let expr = self.expression()?;
             Ok(Argument::Positional(expr))
-        }
-    }
-
-    fn check_ahead(&self, offset: usize, kind: TokenKind) -> bool {
-        if self.position + offset < self.tokens.len() {
-            if let Some(token) = self.tokens.get(self.position + offset) {
-                std::mem::discriminant(&token.kind) == std::mem::discriminant(&kind)
-            } else {
-                false
-            }
-        } else {
-            false
         }
     }
 
@@ -308,7 +370,8 @@ impl<'a> Parser<'a> {
             TokenKind::LeftParen => {
                 self.advance();
                 let expr = self.expression()?;
-                self.consume(TokenKind::RightParen, "Expected ')' after expression")?;
+                let right_paren = self.consume(TokenKind::RightParen, "Expected ')' after expression").cloned();
+                self.report_error(right_paren);
                 Ok(self.builder.grouping(expr.span, self.file_id, expr))
             }
             TokenKind::LeftBracket => {
@@ -320,7 +383,8 @@ impl<'a> Parser<'a> {
                     }
                     expr.push(self.expression()?);
                 }
-                self.consume(TokenKind::RightBracket, "Expected ']' after expression")?;
+                let right_bracket =  self.consume(TokenKind::RightBracket, "Expected ']' after expression").cloned();
+                self.report_error(right_bracket);
                 let end_span = self.get_last_span();
                 let span = self.make_span_fspan(token.span, end_span);
                 Ok(self.builder.build_array_literal(span, self.file_id, expr))
@@ -329,7 +393,7 @@ impl<'a> Parser<'a> {
                 let token = self.current_token().clone();
                 self.synchronize();
                 Err(ParserError::Unexpected {
-                    unexcepted: "unexpected ')' - missing expression".to_string(),
+                    unexcepted: "')' - missing expression".to_string(),
                     span: token.span,
                 })
             }
@@ -337,15 +401,14 @@ impl<'a> Parser<'a> {
                 let token = self.current_token().clone();
                 self.synchronize();
                 Err(ParserError::Unexpected {
-                    unexcepted: "unexpected end of file - missing expression".to_string(),
+                    unexcepted: "end of file - missing expression".to_string(),
                     span: token.span,
                 })
             }
             _ => {
                 let token = self.current_token().clone();
-                self.synchronize();
                 Err(ParserError::Unexpected {
-                    unexcepted: format!("unexpected token '{}' - expected expression", token.lexeme),
+                    unexcepted: format!("token '{}' - expected expression", token.lexeme),
                     span: token.span,
                 })
             }

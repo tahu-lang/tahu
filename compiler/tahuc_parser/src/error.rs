@@ -24,7 +24,7 @@ impl ParserError {
     pub fn to_diagnostic(&self) -> Diagnostic {
         match self {
             ParserError::UnexpectedTopLevel {found, span} => {
-                let allowed = "Allowed declarations(class, interface, function) in top level scope";
+                let allowed = "Allowed declarations(struct, extern function, function, variabel(val, var)) in top level scope";
                 Diagnostic::new(Severity::Error, format!("{} bot got {}", allowed, found)).with_span(*span)
             }
             ParserError::Expected {expected, found, span} => {
