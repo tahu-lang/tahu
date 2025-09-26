@@ -2,7 +2,7 @@ use tahuc_ast::{
     nodes::{
         declarations::{Function, Visibility},
         statements::Variable,
-    }, ty::{ErrorContext, PrimitiveType, Type},
+    }, ty::{PrimitiveType, Type},
 };
 use tahuc_lexer::token::{Token, TokenKind};
 
