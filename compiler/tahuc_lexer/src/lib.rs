@@ -82,22 +82,25 @@ impl<'a> Lexer<'a> {
             Some('\n') | Some('\r') => {
                 self.advance();
                 Ok(self.next_token()?)
-
-                // just delete this fucking token shit
-                // Ok(self.make_token(TokenKind::Newline, start_pos, "\n"))
             }
 
             // skip comment
             Some('/') => {
-                while let Some(c) = self.current_char {
-                    if c == '\n' {
-                        return Ok(self.next_token()?);
-                    }
-                    self.advance();
-                }
-
                 self.advance();
-                Ok(self.next_token()?)
+                if self.current_char == Some('=') {
+                    self.advance();
+                    Ok(self.make_token(TokenKind::DivAssign, start_pos, "/="))
+                } else if self.current_char == Some('/') {
+                    while let Some(c) = self.current_char {
+                        if c == '\n' {
+                            return Ok(self.next_token()?);
+                        }
+                        self.advance();
+                    }
+                    Ok(self.next_token()?)
+                } else {
+                    Ok(self.make_token(TokenKind::Div, start_pos, "/"))
+                }
             }
 
             // TODO: Implement comment
@@ -114,11 +117,11 @@ impl<'a> Lexer<'a> {
             }
             Some(')') => {
                 self.advance();
-                Ok(self.make_token(TokenKind::RightParen, start_pos, "("))
+                Ok(self.make_token(TokenKind::RightParen, start_pos, ")"))
             }
             Some('{') => {
                 self.advance();
-                Ok(self.make_token(TokenKind::LeftBrace, start_pos, "("))
+                Ok(self.make_token(TokenKind::LeftBrace, start_pos, "{"))
             }
             Some('}') => {
                 self.advance();

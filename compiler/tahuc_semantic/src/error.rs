@@ -20,11 +20,16 @@ pub enum SemanticError {
         name: String,
         span: Span,
     },
+    PrivateStruct {
+        name: String,
+        span: Span,
+    },
     Undefined {
         name: String,
         span: Span,
     },
     TypeMismatch {
+        msg: String,
         expected: String,
         found: String,
         span: Span,
@@ -88,6 +93,12 @@ impl SemanticError {
                     .with_note(format!("`{}` is declared as private here", name))
             }
 
+            SemanticError::PrivateStruct { name, span } => {
+                Diagnostic::error(format!("struct `{}` is private", name))
+                    .with_span(*span)
+                    .with_note(format!("`{}` is declared as private here", name))
+            }
+
             SemanticError::Undefined { name, span } => {
                 Diagnostic::error(format!("undefined variable `{}`", name))
                     .with_span(*span)
@@ -98,8 +109,8 @@ impl SemanticError {
                     ))
             }
 
-            SemanticError::TypeMismatch { expected, found, span } => {
-                Diagnostic::error("type mismatch")
+            SemanticError::TypeMismatch { msg, expected, found, span } => {
+                Diagnostic::error(format!("type mismatch {}", msg))
                     .with_span(*span)
                     .with_note(format!("expected `{}`, found `{}`", expected, found))
             }

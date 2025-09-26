@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use tahuc_ast::{
     nodes::{
         declarations::{DeclarationKind, ExternFn, Function}, expressions::{Argument, ExpressionKind}, op::UnaryOp, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
-    }, Module, ty::Type,
+    }, ty::Type, Module
 };
 use tahuc_lexer::token::Literal;
 use tahuc_semantic::database::Database;
@@ -39,12 +39,24 @@ impl Visibility for tahuc_ast::nodes::declarations::Visibility {
 
 pub struct Hir<'a> {
     db: &'a mut Database,
+    files: Vec<FileId>,
     file_id: FileId,
+
+    // cross file
+    structs_map: HashMap<FileId, HashMap<String, HirStruct>>,
+    functions_map: HashMap<FileId, HashMap<String, FunctionId>>,
+    // variable_map: HashMap<FileId, HashMap<String, VariableId>>,
+
+    // scope file
+    structs: Vec<HirStruct>,
     functions: Vec<HirFunction>,
     extern_functions: Vec<HirExternFunction>,
-    variables: HashMap<String, HirVariable>,
-    functions_map: HashMap<FileId, HashMap<String, FunctionId>>,
+
     function_signature: HashMap<FunctionId, FnSignature>,
+
+    variables: HashMap<String, HirVariable>,
+
+    struct_id: u32,
     function_id: u32,
     variable_id: u32,
     current_file: Option<FileId>,
@@ -56,17 +68,33 @@ impl<'a> Hir<'a> {
     pub fn new(db: &'a mut Database) -> Self {
         Self {
             db,
+            files: vec![],
             file_id: FileId(0),
+
+            // cross file
+            structs_map: HashMap::new(),
+            functions_map: HashMap::new(),
+            // variable_map: HashMap::new(),
+
+            // scope file
+            structs: vec![],
             functions: vec![],
             extern_functions: vec![],
             variables: HashMap::new(),
-            functions_map: HashMap::new(),
             function_signature: HashMap::new(),
+
+            struct_id: 0,
             function_id: 0,
             variable_id: 0,
             current_file: None,
             pendings_extern_fn: HashMap::new(),
         }
+    }
+
+    fn next_id_struct(&mut self) -> u32 {
+        let id = self.struct_id;
+        self.struct_id += 1;
+        id
     }
 
     fn next_id_function(&mut self) -> u32 {
@@ -83,11 +111,39 @@ impl<'a> Hir<'a> {
 
     fn collect_declaration(&mut self, modules: &Vec<Module>) {
         for module in modules {
+            self.files.push(module.file);
             for declaration in &module.declaration {
                 match &declaration.kind {
+                    DeclarationKind::Struct(struct_decl) => {
+                        let id = self.next_id_struct();
+                        let mut fields: Vec<HirField> = Vec::new();
+                        let mut field_id = 0;
+                        for field in &struct_decl.fields {
+                            fields.push(HirField {
+                                id: field_id,
+                                name: field.kind.name.clone(),
+                                ty: field.kind.r#type.clone(),
+                            });
+                            field_id += 1;
+                        }
+                        let struct_dec = HirStruct {
+                            id: id,
+                            name: struct_decl.name.clone(),
+                            fields: fields,
+                            visibility: struct_decl.visibility.to_hir(),
+                            ty: struct_decl.ty.clone(),
+                        };
+
+
+                        self
+                            .structs_map
+                            .entry(module.file)
+                            .or_default()
+                            .insert(struct_decl.name.clone(), struct_dec);
+                        
+                    }
                     DeclarationKind::Fn(func) => {
                         let id = self.next_id_function();
-                        // self.functions_map.insert(func.kind.name.clone(), function_id);
 
                         self.add_function(module.file, id, func.kind.name.clone());
 
@@ -95,7 +151,6 @@ impl<'a> Hir<'a> {
                     }
                     DeclarationKind::Extern(extern_func) => {
                         let id = self.next_id_function();
-                        // self.functions_map.insert(extern_func.name.clone(), extern_fn_id);
                         self.add_function(module.file, id, extern_func.name.clone());
 
                         self.add_signature_ex_func(id, extern_func);
@@ -124,6 +179,7 @@ impl<'a> Hir<'a> {
     }
 
     fn clear_state(&mut self) {
+        self.structs.clear();
         self.functions.clear();
         self.extern_functions.clear();
         self.pendings_extern_fn.clear();
@@ -132,6 +188,13 @@ impl<'a> Hir<'a> {
     fn lowering_module(&mut self, module: &Module) -> HirModule {
         for declaration in &module.declaration {
             match &declaration.kind {
+                DeclarationKind::Struct(struct_decl) => {
+                    if let Some(_) = self.structs_map.get(&module.file) {
+                        if let Some(hir_struct) = self.structs_map.get(&module.file).unwrap().get(&struct_decl.name) {
+                            self.structs.push(hir_struct.clone());
+                        }
+                    }
+                }
                 DeclarationKind::Fn(func) => {
                     let fun = self.function_declaration(module.file, func);
                     self.functions.push(fun);
@@ -173,6 +236,7 @@ impl<'a> Hir<'a> {
 
         HirModule {
             file_id: module.file,
+            structs: self.structs.clone(),
             functions: self.functions.clone(),
             extern_functions: self.extern_functions.clone(),
         }
@@ -185,17 +249,19 @@ impl<'a> Hir<'a> {
         self.db.enter_scope();
 
         for param in &func.kind.parameters {
+            let ty = self.get_type(param.id).unwrap().clone();
             let var = HirVariable {
                 id: self.next_id_variable(),
                 name: param.kind.name.clone(),
-                ty: param.kind.r#type.clone(),
+                ty: ty.clone(),
+                span: param.span,
             };
             self.variables.insert(param.kind.name.clone(), var.clone());
 
             hir_params.push(HirParameters {
                 id: var.id,
                 name: param.kind.name.clone(),
-                ty: param.kind.r#type.clone(),
+                ty: ty.clone(),
             });
         }
 
@@ -251,6 +317,7 @@ impl<'a> Hir<'a> {
                         .get_type(statement.id)
                         .unwrap_or(&var.variable_type)
                         .clone(),
+                    span: var.span,
                 };
 
                 let initializer = if let Some(init) = &var.initializer {
@@ -289,19 +356,6 @@ impl<'a> Hir<'a> {
             }
             StatementKind::IfStatement(if_stmt) => {
                 Ok(HirStatement::If(self.lower_if_statement(if_stmt)))
-                // let condition = self.lower_expression(&if_stmt.condition).unwrap();
-                // let then_branch = self.lower_block(&if_stmt.then_branch);
-                // let else_branch = if let Some(else_branch) = &if_stmt.else_branch {
-                //     Some(self.lower_else_branch(else_branch))
-                // } else {
-                //     None
-                // };
-
-                // Ok(HirStatement::If(HirIfStatement {
-                //     condition: condition,
-                //     then_branch: then_branch,
-                //     else_branch: else_branch,
-                // }))
             }
             StatementKind::WhileStatement(while_stmt) => {
                 let condition = self.lower_expression(&while_stmt.condition)?;
@@ -329,16 +383,6 @@ impl<'a> Hir<'a> {
             None
         };
 
-        // let stmt = HirStatement::If {
-        //     condition,
-        //     then_branch: Box::new(then_branch),
-        //     else_branch: else_branch,
-        // };
-
-        // let mut blocks: Vec<HirStatement> = Vec::new();
-        // blocks.push(stmt);
-
-        // HirBlock { statements: blocks }
         HirIfStatement {
             condition: condition,
             then_branch: then_branch,
@@ -354,18 +398,23 @@ impl<'a> Hir<'a> {
             ElseBranch::Block(block) => {
                 HirElseBranch::Block(self.lower_block(block))
             }
-            //  self.lower_block(block),
         }
     }
 
     fn get_left_value(&mut self, left: &Expression) -> Result<HirLValue, String> {
         match &left.kind {
             ExpressionKind::ArrayAccess { array, index } => {
+                let arr_ty = self.get_type(array.id).unwrap().clone();
+                let left_ty = self.get_type(left.id).unwrap().clone();
+                println!("DEBUG HIR: arr {}, exp {}", arr_ty, left_ty);
                 let arr = self.lower_expression(&array)?;
                 let idx = self.lower_expression(&index)?;
                 Ok(HirLValue::ArrayAccess {
                     array: Box::new(arr),
                     index: Box::new(idx),
+                    arr_ty: self.get_type(array.id).unwrap().clone(),
+                    ty: self.get_type(left.id).unwrap().clone(),
+                    span: left.span,
                 })
             }
             ExpressionKind::Identifier(id) => {
@@ -374,17 +423,34 @@ impl<'a> Hir<'a> {
                     .get(id)
                     .cloned()
                     .ok_or("Variable not found".to_string())
-                    .map(|var| HirLValue::Variable(var.id))
+                    .map(|var| HirLValue::Variable {
+                        id: var.id,
+                        ty: var.ty.clone(),
+                        span: left.span,
+                    })
             }
             ExpressionKind::Unary { op, operand } => {
                 match op {
                     UnaryOp::Deref => {
                         let operand = self.lower_expression(&operand)?;
-                        Ok(HirLValue::Deref(operand))
+                        Ok(HirLValue::Deref {
+                            value: operand,
+                            ty: self.get_type(left.id).unwrap().clone(),
+                            span: left.span,
+                        })
                     }
                     _ => {
                         Err(format!("Not Support unary expression {:?}", op))
                     }
+                }
+            }
+            ExpressionKind::MemberAccess { .. } => {
+                let result = self.lower_expression(&left)?;
+                let l_result = result.to_l_value();
+                if let Some(result) = l_result {
+                    Ok(result)
+                } else {
+                    Err(format!("Not Support expression {:?}", l_result))
                 }
             }
             _ => {
@@ -403,12 +469,14 @@ impl<'a> Hir<'a> {
                 Ok(HirExpression::Literal {
                     value: self.ast_literal_to_hir_literal(literal, ty.clone()),
                     ty: ty.clone(),
+                    span: expr.span,
                 })
             }
             ExpressionKind::TemplateString { parts } => {
                 let mut acc = HirExpression::Literal {
                     value: HirLiteral::String("".to_string()),
                     ty: self.get_type(expr.id).unwrap().clone(),
+                    span: expr.span,
                 };
 
                 for part in parts {
@@ -420,6 +488,7 @@ impl<'a> Hir<'a> {
                             HirExpression::Literal {
                                 value: HirLiteral::String(literal.to_string()),
                                 ty: self.get_type(expr.id).unwrap().clone(),
+                                span: expr.span,
                             }
                         }
                     };
@@ -430,22 +499,41 @@ impl<'a> Hir<'a> {
                         op: tahuc_ast::nodes::op::BinaryOp::Add,
                         right: Box::new(rhs),
                         ty: self.get_type(expr.id).unwrap().clone(),
+                        span: expr.span,
                     };
                 }
 
                 Ok(acc)
             }
             ExpressionKind::Identifier(id) => {
-                if let None = self.get_type(expr.id) {
-                    println!();
-                    println!("HIR: id {} not found", expr.id);
-                    println!("HIR: Error not found {:?}", expr);
+                if let Some(var) = self.variables.get(id) {
+                    return Ok(HirExpression::Variable {
+                        id: var.id,
+                        ty: var.ty.clone(),
+                        span: expr.span,
+                    });
                 }
-                self.variables
-                    .get(id)
-                    .cloned()
-                    .ok_or("Variable not found".to_string())
-                    .map(|var| HirExpression::Variable { id: var.id, ty: var.ty })
+                if let Some(struct_map) = self.structs_map.get(&self.file_id) {
+                    if let Some(hir_struct) = struct_map.get(id) {
+                        return Ok(HirExpression::StructType {
+                            id: hir_struct.id,
+                            ty: hir_struct.ty.clone(),
+                            span: expr.span,
+                        })
+                    }
+                }
+                for file in self.files.iter() {
+                    if let Some(struct_map) = self.structs_map.get(file) {
+                        if let Some(hir_struct) = struct_map.get(id) {
+                            return Ok(HirExpression::StructType {
+                                id: hir_struct.id,
+                                ty: hir_struct.ty.clone(),
+                                span: expr.span,
+                            });
+                        }
+                    }
+                }
+                Err(format!("Variable not found {}", id))
             }
             ExpressionKind::Ternary {
                 condition,
@@ -460,6 +548,7 @@ impl<'a> Hir<'a> {
                     condition: Box::new(cond),
                     then_branch: Box::new(then_branch),
                     else_branch: Box::new(else_branch),
+                    span: expr.span,
                 })
             }
             ExpressionKind::Binary { left, op, right } => {
@@ -471,6 +560,7 @@ impl<'a> Hir<'a> {
                     op: op.clone(),
                     right: Box::new(rhs),
                     ty: self.get_type(expr.id).unwrap().clone(),
+                    span: expr.span,
                 })
             }
             ExpressionKind::Unary { op, operand } => {
@@ -480,6 +570,7 @@ impl<'a> Hir<'a> {
                     op: op.clone(),
                     operand: Box::new(right),
                     ty: self.get_type(expr.id).unwrap().clone(),
+                    span: expr.span,
                 })
             }
             ExpressionKind::ArrayLiteral { elements } => {
@@ -491,6 +582,7 @@ impl<'a> Hir<'a> {
                 Ok(HirExpression::ArrayLiteral {
                     elements: arr,
                     ty: self.get_type(expr.id).unwrap().clone(),
+                    span: expr.span,
                 })
             }
             ExpressionKind::ArrayAccess { array, index } => {
@@ -500,15 +592,42 @@ impl<'a> Hir<'a> {
                 Ok(HirExpression::ArrayAccess {
                     array: Box::new(arr),
                     index: Box::new(idx),
+                    arr_ty: self.get_type(array.id).unwrap().clone(),
                     ty: self.get_type(expr.id).unwrap().clone(),
+                    span: expr.span,
                 })
             }
             ExpressionKind::MemberAccess { object, member } => {
                 let obj = self.lower_expression(&object)?;
+
+                match &obj {
+                    HirExpression::Variable { ty, .. } => {
+                        if let Type::Struct { name, .. } = ty {
+                            // Cari field dalam struct
+                            if let Some(field_info) = self.find_struct_field(name, member) {
+                                return Ok(HirExpression::FieldAccess {
+                                    object: Box::new(obj.clone()),
+                                    field_name: member.clone(),
+                                    field_id: field_info.id,
+                                    base_ty: ty.clone(),
+                                    ty: field_info.ty.clone(),
+                                    span: expr.span,
+                                });
+                            } else {
+                                return Err(format!("Field '{}' not found in struct '{}'", member, name));
+                            }
+                        } else {
+                            return Err(format!("Cannot access member '{}' on non-struct type {} id {}", member, ty, object.id));
+                        }
+                    }
+                    _ => {}
+                }
+
                 Ok(HirExpression::MemberAccess {
                     object: Box::new(obj),
                     member: member.clone(),
                     ty: self.get_type(expr.id).unwrap().clone(),
+                    span: expr.span,
                 })
             }
             ExpressionKind::FunctionCall(callee) => {
@@ -536,6 +655,7 @@ impl<'a> Hir<'a> {
                                 args: signature.param_ty.clone(),
                             },
                             ty: self.get_type(callee.function.id).unwrap().clone(),
+                            span: expr.span,
                         });
                     }
                     ExpressionKind::MemberAccess { .. } => {}
@@ -556,25 +676,57 @@ impl<'a> Hir<'a> {
                     },
                     arguments: hir_args,
                     ty: self.get_type(callee.function.id).unwrap().clone(),
+                    span: expr.span,
                 })
             }
             ExpressionKind::Grouping(group) => {
-                let expr = self.lower_expression(&group)?;
+                let hir_expr = self.lower_expression(&group)?;
                 Ok(HirExpression::Grouping {
-                    value: Box::new(expr),
+                    value: Box::new(hir_expr),
                     ty: self.get_type(group.id).unwrap().clone(),
+                    span: expr.span,
                 })
             }
             ExpressionKind::Cast { ty, expression } => {
                 let from_ty = self.get_type(expression.id).unwrap().clone();
 
-                let expr = self.lower_expression(&expression)?;
+                let hir_expr = self.lower_expression(&expression)?;
 
                 Ok(HirExpression::Cast {
-                    value: Box::new(expr),
+                    value: Box::new(hir_expr),
                     from: from_ty,
                     ty: ty.clone(),
+                    span: expr.span,
                 })
+            }
+            ExpressionKind::StructLiteral { object, fields } => {
+                let obj = self.lower_expression(&object)?;
+
+                let ty = obj.get_type();
+
+                match ty {
+                    Type::Struct { .. } => {
+                        let mut hir_fields: Vec<(usize, HirExpression)> = Vec::new();
+
+                        for (index, field) in fields.iter().enumerate() {
+                            if let Some(value) = field.kind.value.as_ref() {
+                                hir_fields.push((index, self.lower_expression(value)?));
+                            } else {
+                                let value = self.lower_expression(&field.kind.name)?;
+                                hir_fields.push((index, value));
+                            }
+                        }
+
+                        Ok(HirExpression::StructLiteral {
+                            object: Box::new(obj),
+                            fields: hir_fields,
+                            ty: self.get_type(object.id).unwrap().clone(),
+                            span: expr.span,
+                        })
+                    }
+                    _ => Err(format!("Struct literal must be a struct type, but got {:?}", ty))
+                }
+            
             }
             _ => {
 
@@ -663,6 +815,21 @@ impl<'a> Hir<'a> {
 
     fn get_type(&mut self, id: u32) -> Option<&Type> {
         self.db.get_type(self.file_id, id)
+    }
+
+    fn find_struct_field(&self, struct_name: &str, field_name: &str) -> Option<&HirField> {
+        // Cari struct berdasarkan nama
+        if let Some(struct_map) = self.structs_map.get(&self.file_id) {
+            if let Some(hir_struct) = struct_map.get(struct_name) {
+                // Cari field dalam struct
+                for field in &hir_struct.fields {
+                    if field.name == field_name {
+                        return Some(field);
+                    }
+                }
+            }
+        }
+        None
     }
 
     pub fn print_debug(&self, hir_modules: &Vec<HirModule>) {

@@ -31,8 +31,10 @@ pub enum MirInstruction {
         base: MirOperand, 
         /// offsets/indexes to reach the sub-element
         indices: Vec<MirOperand>,
+        /// Base type
+        base_ty: MirType,
         /// Type of the resulting pointer
-        ty: MirType,
+        inner_ty: MirType,
     },
 
     /// Binary operation
@@ -111,6 +113,12 @@ pub enum CastKind {
     IntToPtr,
 }
 
+impl CastKind {
+    pub fn is_noop(&self) -> bool {
+        matches!(self, CastKind::NoOp)
+    }
+}
+
 /// Memory Operand
 /// R-Value
 #[derive(Debug, Clone)]
@@ -145,7 +153,7 @@ impl MirOperand {
     }
 
     pub fn new_constant_int(value: i64) -> Self {
-        MirOperand::Constant(MirConstant::Integer(value))
+        MirOperand::Constant(MirConstant::Int { value: value, ty: MirType::I32 })
     }
 
     pub fn is_parameter(&self, mir_func: &MirFunction) -> bool {

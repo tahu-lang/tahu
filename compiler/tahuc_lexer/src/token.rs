@@ -13,6 +13,7 @@ pub enum TokenKind {
     From,
     Interface,
     Enum,
+    Struct,
     Self_,
     Fn,
     Var,
@@ -194,10 +195,11 @@ impl TokenKind {
             "f64" => TokenKind::F64,
             "string" => TokenKind::String,
             "char" => TokenKind::Char,
-            "integer" => TokenKind::Integer,
+            "int" => TokenKind::Integer,
             "double" => TokenKind::Double,
             "bool" => TokenKind::Bool,
             "unit" => TokenKind::Unit,
+            "struct" => TokenKind::Struct,
 
             // visibility
             "pub" => TokenKind::Pub,
@@ -233,6 +235,15 @@ impl Token {
             span,
             file_id,
             lexeme,
+        }
+    }
+
+    pub fn dummy() -> Self {
+        Self {
+            kind: TokenKind::Eof,
+            span: Span::dummy(),
+            file_id: FileId(0),
+            lexeme: "".to_string(),
         }
     }
 }

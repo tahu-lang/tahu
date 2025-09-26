@@ -26,13 +26,15 @@ impl Builder {
         target: LocalId,
         base: MirOperand,
         indices: Vec<MirOperand>,
-        ty: MirType,
+        base_ty: MirType,
+        inner_ty: MirType,
     ) {
         self.add_instruction(MirInstruction::GetElementPtr {
             target,
             base,
             indices,
-            ty,
+            base_ty,
+            inner_ty,
         });
     }
 

@@ -156,6 +156,13 @@ impl Builder {
         if self.is_signed_int(&from) && to == MirType::Char {
             return CastKind::SExt;
         }
+        if from == MirType::Char && self.is_unsigned_int(&to) {
+            return CastKind::ZExt;
+        }
+        if self.is_unsigned_int(&from) && to == MirType::Char {
+            return CastKind::Trunc;
+        }
+
 
         // fallback
         CastKind::NoOp

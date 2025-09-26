@@ -26,6 +26,7 @@ impl Builder {
                 MirOperand::new_constant_int(0),
             ],
             base_ty.clone(),
+            MirType::Bool,
         );
 
         // tentukan nilai is_null
@@ -53,6 +54,7 @@ impl Builder {
                 MirOperand::new_constant_int(1),
             ],
             base_ty.clone(),
+            inner_ty.clone(),
         );
 
         if let HirExpression::Literal {
@@ -81,6 +83,7 @@ impl Builder {
                 MirOperand::new_constant_int(0),
             ],
             base_ty.clone(),
+            MirType::Bool,
         );
 
         let temp = self.new_local(MirType::Bool);
@@ -103,6 +106,7 @@ impl Builder {
                 MirOperand::new_constant_int(1),
             ],
             base_ty.clone(),
+            inner_ty.clone(),
         );
 
         let temp = self.new_local(inner_ty.clone());

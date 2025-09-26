@@ -83,7 +83,13 @@ impl SymbolManager {
         self.symbols.iter().for_each(|(scope, symbols)| {
             println!("file: {} , Id : {} count: {}", scope.file_id.0, scope.id, symbols.capacity());
             symbols.iter().for_each(|(name, symbol)| {
-                if let Some(f) = symbol.get_function() {
+                if let Some(s) = symbol.get_struct() {
+                    println!("  struct {} {{", name);
+                    s.fields.iter().for_each(|field| {
+                        println!("    {}: {}", field.name, field.r#type);
+                    });
+                    println!("  }}");
+                } else if let Some(f) = symbol.get_function() {
                     println!(
                         "  fn {}({}) -> {}",
                         name,
@@ -114,17 +120,17 @@ pub struct Symbol {
 }
 
 impl Symbol {
-    pub fn get_variable(&self) -> Option<&VariableSymbol> {
+    pub fn get_struct(&self) -> Option<&StructSymbol> {
         match &self.kind {
-            SymbolKind::Variable(var) => {
-                return Some(var);
+            SymbolKind::Struct(struct_symbol) => {
+                return Some(struct_symbol);
             }
             _ => None,
         }
     }
 
-    pub fn get_variable_mut(&mut self) -> Option<&mut VariableSymbol> {
-        if let SymbolKind::Variable(v) = &mut self.kind {
+    pub fn get_struct_mut(&mut self) -> Option<&mut StructSymbol> {
+        if let SymbolKind::Struct(v) = &mut self.kind {
             return Some(v);
         } else {
             None
@@ -147,32 +153,61 @@ impl Symbol {
             None
         }
     }
+
+    pub fn get_variable(&self) -> Option<&VariableSymbol> {
+        match &self.kind {
+            SymbolKind::Variable(var) => {
+                return Some(var);
+            }
+            _ => None,
+        }
+    }
+
+    pub fn get_variable_mut(&mut self) -> Option<&mut VariableSymbol> {
+        if let SymbolKind::Variable(v) = &mut self.kind {
+            return Some(v);
+        } else {
+            None
+        }
+    }
+
+    pub fn get_type(&self) -> Type {
+        match &self.kind {
+            SymbolKind::Struct(struct_symbol) => {
+                struct_symbol.ty.clone()
+            }
+            SymbolKind::Function(func) => {
+                func.return_type.clone()
+            }
+            SymbolKind::Variable(var) => {
+                var.final_type.clone()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum SymbolKind {
-    Variable(VariableSymbol),
+    Struct(StructSymbol),
     Function(FunctionSymbol),
+    Variable(VariableSymbol),
 }
 
 #[derive(Debug, Clone)]
-pub struct VariableSymbol {
+pub struct StructSymbol {
+    pub file_id: FileId,
     pub name: String,
-    pub declared_type: Type,
-    pub initializer: Option<NodeId>,
+    pub fields: Vec<StructFieldSymbol>,
+    pub visibility: Visibility,
+    pub ty: Type,
+    pub span: Span,
+}
 
-    /// mark if type is Type::Inference
-    /// use
-    /// ```
-    /// Type.is_inferred()
-    /// ```
-    pub need_inferred: bool,
-
-    /// update after type checking
-    pub inferred_type: Option<Type>,
-
-    /// final type resolved type
-    pub final_type: Type,
+#[derive(Debug, Clone)]
+pub struct StructFieldSymbol {
+    pub name: String,
+    pub r#type: Type,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone)]
@@ -199,4 +234,24 @@ pub struct ParameterInfo {
     // // type inference
     // pub is_inferred: bool,
     // pub inferred_type: Option<Type>, // update after type checking
+}
+
+#[derive(Debug, Clone)]
+pub struct VariableSymbol {
+    pub name: String,
+    pub declared_type: Type,
+    pub initializer: Option<NodeId>,
+
+    /// mark if type is Type::Inference
+    /// use
+    /// ```no run
+    /// Type.is_inferred()
+    /// ```
+    pub need_inferred: bool,
+
+    /// update after type checking
+    pub inferred_type: Option<Type>,
+
+    /// final type resolved type
+    pub final_type: Type,
 }

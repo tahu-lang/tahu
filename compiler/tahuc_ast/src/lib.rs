@@ -1,9 +1,17 @@
 use tahuc_lexer::token::Literal;
 use tahuc_span::{FileId, Span};
 
-use crate::{nodes::{
-    ast::{AstNode, NodeId}, declarations::{Declaration, DeclarationKind, ExternFn, Function, ParameterKind}, expressions::{Argument, ExpressionKind, FunctionCall, TemplatePart}, op::{AssignmentOp, BinaryOp, UnaryOp}, statements::{IfStatement, Statement, StatementKind, Variable, WhileStatement}, Expression
-}, ty::Type};
+use crate::{
+    nodes::{
+        Expression,
+        ast::{AstNode, NodeId},
+        declarations::*,
+        expressions::{Argument, ExpressionKind, FunctionCall, StructLiteralField, TemplatePart},
+        op::{AssignmentOp, BinaryOp, UnaryOp},
+        statements::*,
+    },
+    ty::Type,
+};
 
 pub mod nodes;
 pub mod printer;
@@ -29,6 +37,85 @@ impl AstBuilder {
         let id = self.node_id;
         self.node_id += 1;
         id
+    }
+
+    pub fn build_struct_declaration(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        visibility: Visibility,
+        name: String,
+        fields: Vec<AstNode<StructField>>,
+        ty: Type,
+    ) -> Declaration {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            DeclarationKind::Struct(Struct {
+                visibility,
+                name: name,
+                fields: fields,
+                ty,
+                span: span,
+            }),
+        )
+    }
+
+    pub fn build_struct_field(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        name: String,
+        r#type: Type,
+    ) -> AstNode<StructField> {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            StructField {
+                name: name,
+                r#type: r#type,
+                span: span,
+            },
+        )
+    }
+
+    pub fn build_struct_literal(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        object: Expression,
+        fields: Vec<AstNode<StructLiteralField>>,
+    ) -> Expression {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            ExpressionKind::StructLiteral {
+                object: Box::new(object),
+                fields: fields,
+            },
+        )
+    }
+
+    pub fn build_struct_literal_field(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        name: Expression,
+        value: Option<Expression>,
+    ) -> AstNode<StructLiteralField> {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            StructLiteralField {
+                name: name,
+                value: value,
+                span: span,
+            },
+        )
     }
 
     pub fn build_extern_function(

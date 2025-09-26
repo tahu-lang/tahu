@@ -1,14 +1,11 @@
 use std::collections::HashMap;
 
 use tahuc_ast::ty::Type;
-use tahuc_hir::hir::{HirBlock, HirLiteral, HirModule, VariableId};
+use tahuc_hir::hir::{HirBlock, HirLiteral, HirModule, HirStruct, StructId, VariableId};
+use tahuc_span::FileId;
 
 use crate::mir::{
-    BasicBlockId, LocalId, MirModule,
-    block::MirTerminator,
-    function::{MirExternFunction, MirFunction},
-    instruction::MirOperand,
-    ty::{MirConstant, MirType, ToMirType},
+    block::MirTerminator, function::{MirExternFunction, MirFunction}, instruction::MirOperand, ty::{MirConstant, MirType, ToMirType}, BasicBlockId, GlobalId, LocalId, MirModule
 };
 
 /// Loop context
@@ -78,6 +75,9 @@ impl VariableContext {
 }
 
 pub struct Builder {
+    /// global map
+    pub(crate) struct_map: HashMap<StructId, GlobalId>,
+
     /// current function
     pub(crate) current_function: Option<MirFunction>,
 
@@ -87,23 +87,40 @@ pub struct Builder {
     /// tracking variable mapping
     pub(crate) variable_map: HashMap<VariableId, Variable>,
 
+    /// tracking aliasing for parameter
+    pub(crate) variable_alias: HashMap<LocalId, Variable>,
+
     /// Looping stack
     pub(crate) loop_stack: Vec<LoopContext>,
+
+    pub(crate) module: Option<MirModule>,
 }
 
 impl Builder {
     pub fn new() -> Self {
         Self {
+            struct_map: HashMap::new(),
             current_function: None,
             current_block: None,
             variable_map: HashMap::new(),
+            variable_alias: HashMap::new(),
             loop_stack: Vec::new(),
+            module: None,
         }
     }
 
     pub fn build_module(&mut self, hir_module: &HirModule) -> MirModule {
+        let mut module = MirModule::new();
+        module.file_id = hir_module.file_id;
+        self.module = Some(module);
+
         let mut extern_functions = Vec::new();
         let mut functions = Vec::new();
+
+        for struct_decl in hir_module.structs.iter() {
+            let id = self.new_global(struct_decl.ty.to_mir_ty());
+            self.struct_map.insert(struct_decl.id, id);
+        }
 
         for function in hir_module.functions.iter() {
             functions.push(self.build_function(function));
@@ -122,11 +139,9 @@ impl Builder {
             });
         }
 
-        MirModule {
-            file_id: hir_module.file_id,
-            functions,
-            extern_functions,
-        }
+        self.module.as_mut().unwrap().functions = functions;
+        self.module.as_mut().unwrap().extern_functions = extern_functions;
+        self.module.take().unwrap().clone()
     }
 
     pub(crate) fn build_block(&mut self, block: &HirBlock) -> Termination {
@@ -149,15 +164,16 @@ impl Builder {
         self.current_function = None;
         self.current_block = None;
         self.variable_map.clear();
+        self.variable_alias.clear();
         self.loop_stack.clear();
     }
 
-    pub(crate) fn build_literal(&mut self, literal: &HirLiteral) -> MirConstant {
+    pub(crate) fn build_literal(&mut self, literal: &HirLiteral, ty: MirType) -> MirConstant {
         match literal {
             HirLiteral::String(s) => MirConstant::String(s.clone()),
             HirLiteral::Char(c) => MirConstant::Char(*c),
-            HirLiteral::Integer(i) => MirConstant::Integer(*i),
-            HirLiteral::Float(d) => MirConstant::Float(*d),
+            HirLiteral::Integer(i) => MirConstant::Int { value: *i, ty: ty },
+            HirLiteral::Float(d) => MirConstant::Float { value: *d, ty: ty },
             HirLiteral::Bool(b) => MirConstant::Bool(*b),
             HirLiteral::Null(ty) => match ty {
                 Type::Nullable(inner) => MirConstant::Null(inner.to_mir_ty()),
@@ -219,11 +235,33 @@ impl Builder {
         self.variable_map.insert(var_id, variable);
     }
 
+    pub(crate) fn add_variable_as(&mut self, alias: LocalId, variable: Variable) {
+        self.variable_alias.insert(alias, variable);
+    }
+
     pub(crate) fn read_variable(&self, var_id: VariableId) -> Variable {
-        self.variable_map
+        let var = self.variable_map
             .get(&var_id)
             .expect("Variable not found")
+            .clone();
+
+        if let Some(alias) = self.variable_alias.get(&var.id) {
+            return alias.clone();
+        }
+
+        var
+    }
+
+    pub(crate) fn read_struct(&self, struct_id: StructId) -> GlobalId {
+        self.struct_map
+            .get(&struct_id)
+            .expect("Struct not found")
             .clone()
+    }
+
+    pub(crate) fn new_global(&mut self, ty: MirType) -> GlobalId {
+        let module = self.module.as_mut().unwrap();
+        module.new_global(ty)
     }
 
     pub(crate) fn new_local(&mut self, ty: MirType) -> LocalId {

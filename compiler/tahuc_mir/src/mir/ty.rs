@@ -6,8 +6,14 @@ use tahuc_ast::ty::*;
 pub enum MirConstant {
     String(String),
     Char(char),
-    Integer(i64),
-    Float(f64),
+    Int {
+        value: i64,
+        ty: MirType,
+    },
+    Float {
+        value: f64,
+        ty: MirType,
+    },
     Bool(bool),
     Null(MirType),
 }
@@ -17,8 +23,8 @@ impl MirConstant {
         match self {
             MirConstant::String(_) => MirType::String,
             MirConstant::Char(_) => MirType::Char,
-            MirConstant::Integer(_) => MirType::I32,
-            MirConstant::Float(_) => MirType::F64,
+            MirConstant::Int { ty, .. } => ty.clone(),
+            MirConstant::Float { ty, .. } => ty.clone(),
             MirConstant::Bool(_) => MirType::Bool,
             MirConstant::Null(_) => MirType::Null,
         }
@@ -30,8 +36,8 @@ impl Display for MirConstant {
         match self {
             MirConstant::String(s) => write!(f, "{}", s),
             MirConstant::Char(c) => write!(f, "{}", c),
-            MirConstant::Integer(i) => write!(f, "{}", i),
-            MirConstant::Float(float) => write!(f, "{}", float),
+            MirConstant::Int { ty, .. } => write!(f, "{}", ty),
+            MirConstant::Float { ty, .. } => write!(f, "{}", ty),
             MirConstant::Bool(b) => write!(f, "{}", b),
             MirConstant::Null(n) => write!(f, "{}", n),
         }
@@ -85,6 +91,11 @@ impl MirType {
         }
     }
 
+    /// Type is Aggregate
+    /// 
+    /// - Array
+    /// - Struct
+    /// - Named or custom Type
     pub fn is_aggregate(&self) -> bool {
         match self {
             MirType::Array { .. } => true,
@@ -97,7 +108,26 @@ impl MirType {
     pub fn is_void(&self) -> bool {
         match self {
             MirType::Unit => true,
-            // MirType::Nullable(inner) => inner.is_void(),
+            _ => false,
+        }
+    }
+
+    pub fn is_primitive(&self) -> bool {
+        match self {
+            MirType::I8
+            | MirType::I16
+            | MirType::I32
+            | MirType::I64
+            | MirType::Isize
+            | MirType::U8
+            | MirType::U16
+            | MirType::U32
+            | MirType::U64
+            | MirType::Usize
+            | MirType::F32
+            | MirType::F64
+            | MirType::Bool
+            | MirType::Char => true,
             _ => false,
         }
     }
@@ -115,9 +145,9 @@ impl MirType {
             | MirType::U16
             | MirType::U32
             | MirType::U64
-            | MirType::Usize => MirConstant::Integer(0),
+            | MirType::Usize => MirConstant::Int { value: 0, ty: MirType::I32 },
             MirType::F32 
-            | MirType::F64 => MirConstant::Float(0.0),
+            | MirType::F64 => MirConstant::Float { value: 0.0, ty: MirType::F64 },
             MirType::Bool => MirConstant::Bool(false),
             _ => {
                 MirConstant::Null(MirType::Null)
@@ -160,6 +190,12 @@ impl ToMirType for Type {
             Type::Int => MirType::I32,
             Type::Double => MirType::F64,
             Type::Array { ty, size } => MirType::Array { ty: Box::new(ty.to_mir_ty()), size: *size },
+            Type::Struct { name, fields } => {
+                MirType::Struct {
+                    name: name.clone(),
+                    fields: fields.iter().map(|(name, ty)| (name.clone(), ty.to_mir_ty())).collect(),
+                }
+            }
             Type::Nullable(ty) => {
                 MirType::Struct {
                     name: format!("{}?", ty),
@@ -196,7 +232,7 @@ impl Display for MirType {
             MirType::F64 => write!(f, "f64"),
             MirType::Unit => write!(f, "()"),
             MirType::Bool => write!(f, "i1"),
-            MirType::Char => write!(f, "i8"),
+            MirType::Char => write!(f, "char"),
             MirType::String => write!(f, "i8*"),
             MirType::Pointer(inner) => write!(f, "{}*", inner),
             MirType::Null => write!(f, "null"),
@@ -233,6 +269,7 @@ impl MirType {
             MirType::U8 | MirType::U16 | MirType::U32 | MirType::U64 | MirType::Usize => MirTypeKind::UnsignedInt,
             MirType::F32 | MirType::F64 => MirTypeKind::Float,
             MirType::Bool => MirTypeKind::Bool,
+            MirType::Char => MirTypeKind::SignedInt,
             _ => MirTypeKind::Other,
         }
     }

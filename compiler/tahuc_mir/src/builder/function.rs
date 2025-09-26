@@ -4,9 +4,7 @@ use tahuc_hir::hir::{HirFunction, HirParameters};
 use crate::{
     builder::builder::{Builder, Variable, VariableContext},
     mir::{
-        block::MirTerminator,
-        function::MirFunction,
-        ty::{MirType, ToMirType}, LocalId,
+        block::MirTerminator, function::MirFunction, instruction::MirOperand, ty::{MirType, ToMirType}, LocalId
     },
 };
 
@@ -17,12 +15,12 @@ impl Builder {
         let func = self.new_fn(function);
         self.set_fn(func);
 
-        self.build_parameter(&function.parameters);
-
         // create entry block
         let entry = self.new_block("entry");
         // switch to entry block
         self.switch_to_block(entry);
+
+        self.build_parameter(&function.parameters);
 
         self.build_block(&function.body);
 
@@ -52,6 +50,7 @@ impl Builder {
     fn build_parameter(&mut self, parameters: &Vec<HirParameters>) {
         for param in parameters.iter() {
             let (ty, inner, ctx) = self.get_param_ty(param);
+            println!("DEBUG MIR: {} {:?}", ty, inner);
 
             let id = self.add_parameter(ty.clone(), param.name.clone());
             self.add_variable_cfg(
@@ -59,10 +58,23 @@ impl Builder {
                 Variable {
                     id,
                     ctx,
-                    inner_ty: inner,
+                    inner_ty: inner.clone(),
                     ty: ty.clone(),
                 },
             );
+
+            if ty.is_primitive() {
+                let alias_id = self.new_local(ty.clone());
+                self.add_variable_as(id, Variable {
+                    id: alias_id,
+                    ty: ty.clone(),
+                    inner_ty: inner.clone(),
+                    ctx: VariableContext::Local,
+                });
+
+                self.alloca(alias_id, ty.clone());
+                self.store(MirOperand::Local(alias_id), MirOperand::Local(id), ty.clone());
+            }
         }
     }
 
@@ -82,15 +94,19 @@ impl Builder {
                 _ => unreachable!(),
             };
             let ty = MirType::Pointer(Box::new(param.ty.to_mir_ty()));
-            (
+            return (
                 ty,
                 Some(inner.to_mir_ty()),
                 VariableContext::ParameterNullable,
-            )
-        } else {
-            let ty = param.ty.to_mir_ty();
-            (ty, None, VariableContext::Parameter)
+            );
+        } 
+        if param.ty.is_struct() {
+            let ty = MirType::Pointer(Box::new(param.ty.to_mir_ty()));
+            return (ty, None, VariableContext::Parameter);
         }
+        
+        let ty = param.ty.to_mir_ty();
+        (ty, None, VariableContext::Parameter)
     }
 
     /// falback return if function is return void or unit

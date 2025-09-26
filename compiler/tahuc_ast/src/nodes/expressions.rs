@@ -37,6 +37,10 @@ pub enum ExpressionKind {
         array: Box<Expression>,
         index: Box<Expression>,
     },
+    StructLiteral {
+        object: Box<Expression>,
+        fields: Vec<AstNode<StructLiteralField>>,
+    },
     MemberAccess {
         object: Box<Expression>,
         member: String,
@@ -47,6 +51,13 @@ pub enum ExpressionKind {
         ty: Type,
         expression: Box<Expression>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructLiteralField {
+    pub name: Expression,
+    pub value: Option<Expression>,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
