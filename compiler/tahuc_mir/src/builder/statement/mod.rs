@@ -1,9 +1,8 @@
 use tahuc_hir::hir::{HirElseBranch, HirStatement};
 
-use crate::{builder::builder::{Builder, Termination}, mir::BasicBlockId};
+use crate::{builder::builder::{Builder, Termination}, mir::{ty::ToMirType, BasicBlockId}};
 
 pub(crate) mod assignment;
-pub(crate) mod control_flow;
 pub(crate) mod variable;
 
 impl Builder {
@@ -27,7 +26,8 @@ impl Builder {
             }
             HirStatement::Return { value } => {
                 let value = if let Some(value) = value {
-                    let value = self.build_expression(value, false);
+                    let need_addr = value.get_type().to_mir_ty().is_aggregate();
+                    let value = self.build_expression(value, need_addr);
                     Some(value)
                 } else {
                     None

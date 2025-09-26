@@ -43,6 +43,7 @@ impl Builder {
                 let expr = HirExpression::Literal {
                     value: HirLiteral::Null(Type::Null),
                     ty: variable.ty.clone(),
+                    span: variable.span.clone(),
                 };
                 self.build_nullable(&expr, MirOperand::Local(local_id), &ty.clone(), &inner);
             }
@@ -52,7 +53,7 @@ impl Builder {
     fn build_initializer(&mut self, variable: &HirVariable, initializer: &HirExpression) {
         let init_ty = initializer.get_type().to_mir_ty();
         match initializer {
-            HirExpression::ArrayLiteral { elements, ty } => {
+            HirExpression::ArrayLiteral { elements, ty, span } => {
                 let element_ty = match ty {
                     Type::Array { ty, .. } => ty.as_ref().clone(),
                     _ => panic!("ArrayLiteral must have Array type"),

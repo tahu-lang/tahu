@@ -35,16 +35,21 @@ impl Builder {
                     _ => unreachable!(),
                 };
 
-                let left = MirOperand::new_constant_int(1);
-                let right = self.build_expression(operand, false);
+                let left = self.build_expression(operand, false);
+                let right = MirOperand::new_constant_int(1);
 
-                self.binary_op(target, left, right, binary_op, ty.clone());
-
+                self.binary_op(target, left.clone(), right, binary_op, ty.clone());
                 let right_ptr = self.build_expression(operand, true);
+                let value = MirOperand::Local(target);
+                self.store(right_ptr, value.clone(), ty.clone());
 
-                self.store(right_ptr, MirOperand::Local(target), ty.clone());
+                let target = match op {
+                    UnaryOp::PreIncrement | UnaryOp::PreDecrement => value,
+                    UnaryOp::PostIncrement | UnaryOp::PostDecrement => left,
+                    _ => unreachable!(),
+                };
 
-                MirOperand::Local(target)
+                target
             }
             _ => {
                 let operand = self.build_expression(operand, false);
