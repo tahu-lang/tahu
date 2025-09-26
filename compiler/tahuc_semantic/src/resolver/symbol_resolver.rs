@@ -173,13 +173,15 @@ impl<'a> SymbolResolution<'a> {
                                 });
                             }
                         }
-                    } else if let Some(_) = symbol.get_variable() {
-                        // All good
-                    } else {
-                        self.db.report_error(SemanticError::Undefined {
-                            name: identifer.clone(),
-                            span: expression.span,
-                        });
+                    } else if let Some(struct_access) = symbol.get_struct() {
+                        if !struct_access.visibility.is_public() {
+                            if self.file_id != struct_access.file_id {
+                                self.db.report_error(SemanticError::PrivateStruct {
+                                    name: struct_access.name.clone(),
+                                    span: struct_access.span,
+                                });
+                            }
+                        }
                     }
                 } else {
                     self.db.report_error(SemanticError::Undefined {
@@ -204,6 +206,15 @@ impl<'a> SymbolResolution<'a> {
             }
             ExpressionKind::MemberAccess { object, .. } => {
                 self.resolve_expression(object);
+            }
+            ExpressionKind::StructLiteral { object, fields } => {
+                self.resolve_expression(object);
+
+                for field in fields {
+                    if let Some(value) = &field.kind.value {
+                        self.resolve_expression(&value);
+                    }
+                }
             }
             _ => {}
         }
