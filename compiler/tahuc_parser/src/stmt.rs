@@ -9,6 +9,7 @@ use crate::{Parser, error::ParserError};
 
 impl<'a> Parser<'a> {
     pub(crate) fn statement(&mut self) -> Result<Statement, ParserError> {
+        self.switch_statement_context();
         match self.current_token().kind.clone() {
             TokenKind::Val | TokenKind::Var => {
                 let variable = self.variable_declaration(Visibility::Private)?;
@@ -22,7 +23,10 @@ impl<'a> Parser<'a> {
             // TokenKind::For => self.for_statement(),
             TokenKind::Continue => self.parse_continue(),
             TokenKind::Break => self.parse_break(),
-            _ => self.expression_statement(),
+            _ => {
+                self.log_current_token();
+                Ok(self.expression_statement()?)
+            }
         }
     }
 
@@ -35,7 +39,8 @@ impl<'a> Parser<'a> {
             self.advance();
             let rhs = self.expression()?;
 
-            self.consume(TokenKind::Semicolon, "Expected ';' after assigment.")?;
+            let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after assigment.").cloned();
+            self.report_error(semi_colon);
 
             let end_token = self.current_token().clone();
             let span = self.make_span(start_token, end_token);
@@ -44,7 +49,8 @@ impl<'a> Parser<'a> {
                 .builder
                 .build_assigment_statement(span, self.file_id, lhs, op, rhs))
         } else {
-            self.consume(TokenKind::Semicolon, "Expected ';' after expression.")?;
+            let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after expression.").cloned();
+            self.report_error(semi_colon);
             let end_token = self.current_token().clone();
             let span = self.make_span(start_token, end_token);
             Ok(self.builder.expression_statement(span, self.file_id, lhs))
@@ -95,12 +101,14 @@ impl<'a> Parser<'a> {
         let start_token = self.current_token().clone();
         self.advance();
         let value = if !self.check(TokenKind::Semicolon) {
+            self.switch_expression_context();
             Some(self.expression()?)
         } else {
             None
         };
 
-        self.consume(TokenKind::Semicolon, "Expected ';' after return value.")?;
+        let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after return value.").cloned();
+        self.report_error(semi_colon);
 
         let end_token = self.current_token().clone();
         let span = self.make_span(start_token, end_token);
@@ -187,7 +195,8 @@ impl<'a> Parser<'a> {
     fn parse_continue(&mut self) -> Result<Statement, ParserError> {
         let start_token = self.current_token().clone();
         self.advance();
-        self.consume(TokenKind::Semicolon, "Expected ';' after continue.")?;
+        let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after continue.").cloned();
+        self.report_error(semi_colon);
 
         let end_token = self.current_token().clone();
         let span = self.make_span(start_token, end_token);
@@ -198,7 +207,8 @@ impl<'a> Parser<'a> {
     fn parse_break(&mut self) -> Result<Statement, ParserError> {
         let start_token = self.current_token().clone();
         self.advance();
-        self.consume(TokenKind::Semicolon, "Expected ';' after break.")?;
+        let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after break.").cloned();
+        self.report_error(semi_colon);
 
         let end_token = self.current_token().clone();
         let span = self.make_span(start_token, end_token);
