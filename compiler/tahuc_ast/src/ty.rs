@@ -27,6 +27,10 @@ pub enum Type {
         ty: Box<Type>,
         size: usize
     },
+    Struct {
+        name: String,
+        fields: Vec<(String, Type)>,
+    },
     Nullable(Box<Type>),
     Pointer(Box<Type>),
     
@@ -39,6 +43,9 @@ pub enum Type {
     Inferred,
     // for error
     Error,
+
+    /// for parser only
+    Dummy,
 }
 
 impl fmt::Display for PrimitiveType {
@@ -81,6 +88,27 @@ impl Type {
             _ => false,
         }
     }
+
+    pub fn is_named(&self) -> bool {
+        match self {
+            Type::Named(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_ty_named(&self) -> Option<String> {
+        match self {
+            Type::Named(name) => Some(name.clone()),
+            _ => None
+        }
+    }
+
+    pub fn is_struct(&self) -> bool {
+        match self {
+            Type::Struct { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Type {
@@ -93,6 +121,13 @@ impl fmt::Display for Type {
             Type::String => write!(f, "String"),
             Type::Null => write!(f, "Null"),
             Type::Array { ty, size } => write!(f, "[{} x {}]", size, ty),
+            Type::Struct { name, fields } => {
+                write!(f, "struct {} {{", name)?;
+                for (name, ty) in fields {
+                    write!(f, "{}: {}, ", name, ty)?;
+                }
+                write!(f, "}}")
+            }
             Type::Nullable(ty) => write!(f, "{}?", ty),
             Type::Pointer(type_) => write!(f, "*{}", type_),
             Type::Function(params, type_) => write!(
@@ -108,6 +143,7 @@ impl fmt::Display for Type {
             Type::Named(name) => write!(f, "{}", name),
             Type::Inferred => write!(f, "Inferred"),
             Type::Error => write!(f, "Error"),
+            Type::Dummy => write!(f, "Dummy"),
         }
     }
 }
@@ -259,6 +295,9 @@ impl Type {
             // alias comparison
             (Type::Primitive(PrimitiveType::I8), Type::Int) => true,
             (Type::Int, Type::Primitive(PrimitiveType::I8)) => true,
+
+            (a, b) if a.is_integer() && b.is_integer() => true,
+            (a, b) if a.is_float() && b.is_float() => true,
 
             (Type::Int, Type::Primitive(PrimitiveType::I32))
             | (Type::Primitive(PrimitiveType::I32), Type::Int)

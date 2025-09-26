@@ -13,9 +13,26 @@ pub type Declaration = AstNode<DeclarationKind>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeclarationKind {
+    Struct(Struct),
     Fn(Function),
     Variable(Variable),
     Extern(ExternFn),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Struct {
+    pub visibility: Visibility,
+    pub name: String,
+    pub fields: Vec<AstNode<StructField>>,
+    pub ty: Type,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructField {
+    pub name: String,
+    pub r#type: Type,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
