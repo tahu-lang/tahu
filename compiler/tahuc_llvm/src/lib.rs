@@ -2,7 +2,9 @@
 #![allow(non_camel_case_types)]
 
 pub mod core;
+pub mod target_machine;
 pub mod analysis;
+pub mod target;
 
 pub enum LLVMContext {}
 

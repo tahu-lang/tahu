@@ -18,6 +18,7 @@ fn main() {
     let libs = String::from_utf8(
         Command::new("llvm-config")
             .args(&["--libnames", "core", "analysis", "target", "codegen", "object"])
+            .args(&["x86", "arm", "aarch64", "amdgpu", "loongarch", "mips", "WebAssembly"])
             .output()
             .expect("failed to run llvm-config --libs")
             .stdout,
