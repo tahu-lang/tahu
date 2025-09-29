@@ -12,4 +12,5 @@ tahuc_span = { path = "../tahuc_span" }
 tahuc_semantic = { path = "../tahuc_semantic" }
 tahuc_hir = { path = "../tahuc_hir" }
 tahuc_mir = { path = "../tahuc_mir" }
+tahuc_codegen_llvm = { path = "../tahuc_codegen_llvm" }
 tahuc_llvm = { path = "../tahuc_llvm" }

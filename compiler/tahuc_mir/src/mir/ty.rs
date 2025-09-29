@@ -51,9 +51,9 @@ pub enum MirType {
     F32, F64,
     Bool,
     Char,
-    String,
     Unit,
     Null,
+    String,
     Pointer(Box<MirType>),
     Array {
         ty: Box<MirType>,
@@ -158,6 +158,30 @@ impl MirType {
     pub fn is_string(&self) -> bool {
         match self {
             MirType::String => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_integer(self) -> bool {
+        match self {
+            MirType::I8 
+            | MirType::I16
+            | MirType::I32 
+            | MirType::I64
+            | MirType::Isize
+            | MirType::U8
+            | MirType::U16
+            | MirType::U32
+            | MirType::U64
+            | MirType::Usize => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_float(self) -> bool {
+        match self {
+            MirType::F32 
+            | MirType::F64 => true,
             _ => false,
         }
     }

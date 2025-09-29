@@ -49,6 +49,16 @@ unsafe extern "C" {
 
     pub unsafe fn LLVMBuildUnreachable(B: LLVMBuilderRef) -> LLVMValueRef;
 
+    // call
+    pub unsafe fn LLVMBuildCall2(
+        arg1: LLVMBuilderRef,
+        arg2: LLVMTypeRef,
+        Fn: LLVMValueRef,
+        Args: *mut LLVMValueRef,
+        NumArgs: std::ffi::c_uint,
+        Name: *const std::ffi::c_char,
+    ) -> LLVMValueRef;
+
     /// Add a case to a `switch` instruction
     pub unsafe fn LLVMAddCase(Switch: LLVMValueRef, OnVal: LLVMValueRef, Dest: LLVMBasicBlockRef);
 
@@ -111,11 +121,18 @@ unsafe extern "C" {
         Name: *const std::ffi::c_char,
     ) -> LLVMValueRef;
 
+    // phi instruction
     pub unsafe fn LLVMBuildPhi(
         arg1: LLVMBuilderRef,
         Ty: LLVMTypeRef,
         Name: *const std::ffi::c_char,
     ) -> LLVMValueRef;
+    pub unsafe fn LLVMAddIncoming(
+        PhiNode: LLVMValueRef,
+        IncomingValues: *mut LLVMValueRef,
+        IncomingBlocks: *mut LLVMBasicBlockRef,
+        Count: std::ffi::c_uint,
+    );
 
     pub unsafe fn LLVMBuildSelect(
         arg1: LLVMBuilderRef,
@@ -207,6 +224,22 @@ unsafe extern "C" {
         Name: *const std::ffi::c_char,
     ) -> LLVMValueRef;
 
+    // unary
+    pub unsafe fn LLVMBuildNeg(
+        arg1: LLVMBuilderRef,
+        V: LLVMValueRef,
+        Name: *const std::ffi::c_char,
+    ) -> LLVMValueRef;
+    pub unsafe fn LLVMBuildFNeg(
+        arg1: LLVMBuilderRef,
+        V: LLVMValueRef,
+        Name: *const std::ffi::c_char,
+    ) -> LLVMValueRef;
+    pub unsafe fn LLVMBuildNot(
+        arg1: LLVMBuilderRef,
+        V: LLVMValueRef,
+        Name: *const std::ffi::c_char,
+    ) -> LLVMValueRef;
 }
 
 // // Core->Pass managers

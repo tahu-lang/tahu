@@ -252,17 +252,9 @@ impl<'a> MirPrinter<'a> {
                 )
             }
             MirInstruction::Call { target, function, arguments, .. } => {
-                let target_str = if let Some(target_id) = target {
-                    format!("%{} = ", target_id)
-                } else {
-                    String::new()
-                };
+                let target_str = format!("%{} = ", target);
 
-                let return_ty = if let Some(target_id) = target {
-                    self.get_local_type(*target_id).unwrap_or(&MirType::Unit)
-                } else {
-                    &MirType::Unit
-                };
+                let return_ty = self.get_local_type(*target).unwrap_or(&MirType::Unit);
 
                 let args_str = arguments
                     .iter()

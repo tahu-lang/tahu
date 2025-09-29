@@ -72,7 +72,7 @@ impl Builder {
 
     pub(crate) fn call(
         &mut self,
-        target: Option<LocalId>,
+        target: LocalId,
         function: FunctionId,
         arguments: Vec<MirOperand>,
         ty: MirType,

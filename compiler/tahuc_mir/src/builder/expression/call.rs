@@ -49,7 +49,7 @@ impl Builder {
             }
         }
 
-        self.call(Some(target), *callee, args, ty.to_mir_ty());
+        self.call(target, *callee, args, ty.to_mir_ty());
 
         MirOperand::Local(target)
     }
