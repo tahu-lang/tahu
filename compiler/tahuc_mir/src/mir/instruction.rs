@@ -56,7 +56,7 @@ pub enum MirInstruction {
 
     /// Function Call
     Call {
-        target: Option<LocalId>,
+        target: LocalId,
         function: FunctionId,
         arguments: Vec<MirOperand>,
         ty: MirType,
