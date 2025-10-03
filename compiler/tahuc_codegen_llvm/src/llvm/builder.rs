@@ -1,3 +1,5 @@
+use std::ffi::CString;
+
 use tahuc_llvm::{
     core::*,
     opaque::{LLVMBuilderRef, LLVMValueRef},
