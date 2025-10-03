@@ -1,7 +1,7 @@
 use tahuc_ast::{nodes::ast::NodeId, ty::Type};
 use tahuc_span::FileId;
 
-use crate::{error::SemanticError, scope::ScopeManager, symbol::{Symbol, SymbolManager, VariableSymbol}, type_manager::TypeManager};
+use crate::{error::SemanticError, scope::ScopeManager, symbol::{Symbol, SymbolDatabase, SymbolManager, VariableSymbol}, type_manager::TypeManager};
 
 #[derive(Debug, Clone)]
 pub struct Database {
@@ -10,6 +10,9 @@ pub struct Database {
 
     // symbol manager for all information about symbol
     symbol_manager: SymbolManager,
+
+    // all symbol fixed
+    symbol_db: SymbolDatabase,
 
     // type manager, all information about type by node id
     type_manager: TypeManager,
@@ -26,6 +29,7 @@ impl Database {
         Self {
             scope_manager: ScopeManager::new(),
             symbol_manager: SymbolManager::new(),
+            symbol_db: SymbolDatabase::new(),
             type_manager: TypeManager::new(),
             files: Vec::new(),
             errors: Vec::new(),
@@ -63,6 +67,10 @@ impl Database {
         self.symbol_manager.insert(file_id, id, symbol.name.clone(), symbol)
     }
 
+    pub fn all_symbol_public(&mut self, file_id: FileId) -> Option<&std::collections::HashMap<String, Symbol>> {
+        self.symbol_manager.get_all_symbol_public(file_id, 0)
+    }
+
     pub fn lookup_symbol(&mut self, file_id: FileId, name: String) -> Option<Symbol> {
         for &scope_id in self.scope_manager.iter_rev() {
             if let Some(symbol) = self.symbol_manager.get(file_id, scope_id, name.to_string()) {
@@ -71,11 +79,31 @@ impl Database {
         }
 
         for file in &self.files {
+            if file_id == *file {
+                continue;
+            }
             if let Some(symbol) = self.symbol_manager.get(*file, 0, name.to_string()) {
                 return Some(symbol.clone());
             }
         }
 
+        None
+    }
+
+    pub fn lookup_symbol_scope_file(&mut self, file_id: FileId, name: String) -> Option<Symbol> {
+        for &scope_id in self.scope_manager.iter_rev() {
+            if let Some(symbol) = self.symbol_manager.get(file_id, scope_id, name.to_string()) {
+                return Some(symbol.clone());
+            }
+        }
+
+        None
+    }
+
+    pub fn lookup_global_scope(&mut self, file_id: FileId, name: String) -> Option<Symbol> {
+        if let Some(symbol) = self.symbol_manager.get(file_id, 0, name.to_string()) {
+            return Some(symbol.clone());
+        }
         None
     }
 
@@ -108,6 +136,21 @@ impl Database {
         }
     }
 
+    pub fn set_symbol(&mut self, file_id: FileId, id: NodeId, symbol: Symbol) {
+        self.symbol_db.add_symbol(file_id, id, symbol);
+    }
+
+    pub fn get_symbol(&self, file_id: FileId, id: NodeId) -> Option<&Symbol> {
+        self.symbol_db.get_symbol(file_id, id)
+    }
+
+    pub fn update_symbol_db<F>(&mut self, file_id: FileId, id: NodeId, f: F)
+    where
+        F: FnMut(&mut Symbol)
+    {
+        self.symbol_db.update_symbol(file_id, id, f);
+    }
+
     pub fn add_type(&mut self, file_id: FileId, id: NodeId, ty: Type) {
         self.type_manager.set_type(file_id, id, ty);
     }
@@ -117,7 +160,10 @@ impl Database {
     }
 
     pub fn print_debug(&mut self) {
+        println!("==== Symbol Manager ====");
         self.symbol_manager.print_debug();
+        println!("==== Symbol Database ====");
+        self.symbol_db.print_debug();
         println!("==== Type Manager ====");
         self.type_manager.dump();
     }

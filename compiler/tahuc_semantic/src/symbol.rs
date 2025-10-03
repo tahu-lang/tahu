@@ -74,12 +74,16 @@ impl SymbolManager {
         self.symbols.get_mut(&queries).unwrap().get_mut(&name)
     }
 
+    pub fn get_all_symbol_public(&mut self, file_id: FileId, id: usize) -> Option<&HashMap<String, Symbol>> {
+        let queries = self.query(file_id, id);
+        self.symbols.get(&queries)
+    }
+
     fn query(&self, file_id: FileId, id: usize) -> ScopeKey {
         ScopeKey { file_id, id }
     }
 
     pub fn print_debug(&mut self) {
-        println!("==== Symbol Manager ====");
         self.symbols.iter().for_each(|(scope, symbols)| {
             println!("file: {} , Id : {} count: {}", scope.file_id.0, scope.id, symbols.capacity());
             symbols.iter().for_each(|(name, symbol)| {
@@ -113,6 +117,70 @@ impl SymbolManager {
 }
 
 #[derive(Debug, Clone)]
+pub struct SymbolDatabase {
+    symbol: HashMap<FileId, HashMap<NodeId, Symbol>>,
+
+    symbol_lookup: HashMap<FileId, HashMap<Symbol, NodeId>>,
+
+    // left node_id, right owned id
+    constain_id: HashMap<NodeId, NodeId>,
+}
+
+impl SymbolDatabase {
+    pub fn new() -> Self {
+        Self {
+            symbol: HashMap::new(),
+            symbol_lookup: HashMap::new(),
+            constain_id: HashMap::new(),
+        }
+    }
+
+    pub fn add_symbol(&mut self, file_id: FileId, id: NodeId, symbol: Symbol) {
+        let file = self.symbol.entry(file_id).or_default();
+        let lookup = self.symbol_lookup.entry(file_id).or_default();
+
+        if file.contains_key(&id) {
+            return;
+        }
+
+        if let Some(&existing_id) = lookup.get(&symbol) {
+            self.constain_id.insert(id, existing_id);
+            return;
+        }
+
+        file.insert(id, symbol.clone());
+        lookup.insert(symbol, id);
+    }
+
+    pub fn get_symbol(&self, file_id: FileId, id: NodeId) -> Option<&Symbol> {
+        let file = self.symbol.get(&file_id)?;
+        let lookup_id = self.constain_id.get(&id).unwrap_or(&id);
+        file.get(lookup_id)
+    }
+
+    pub fn update_symbol<F>(&mut self, file_id: FileId, id: NodeId, mut f: F)
+    where
+        F: FnMut(&mut Symbol),
+    {
+        if let Some(file) = self.symbol.get_mut(&file_id) {
+            if let Some(symbol) = file.get_mut(&id) {
+                f(symbol);
+            }
+        }
+    }
+
+    pub fn print_debug(&mut self) {
+        self.symbol.iter().for_each(|(file_id, symbols)| {
+            println!("  FileId: {:?}", file_id);
+            symbols.iter().for_each(|(node_id, symbol)| {
+                println!("    NodeId: {:?}, Symbol: {:?}", node_id, symbol);
+            });
+            println!();
+        });
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Symbol {
     pub name: String,
     pub span: Span,
@@ -171,6 +239,15 @@ impl Symbol {
         }
     }
 
+    pub fn update_variable<F>(&mut self, mut f: F)
+    where
+        F: FnMut(&mut VariableSymbol),
+    {
+        if let SymbolKind::Variable(var) = &mut self.kind {
+            f(var);
+        }
+    }
+
     pub fn get_type(&self) -> Type {
         match &self.kind {
             SymbolKind::Struct(struct_symbol) => {
@@ -186,14 +263,14 @@ impl Symbol {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum SymbolKind {
     Struct(StructSymbol),
     Function(FunctionSymbol),
     Variable(VariableSymbol),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructSymbol {
     pub file_id: FileId,
     pub name: String,
@@ -203,14 +280,14 @@ pub struct StructSymbol {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct StructFieldSymbol {
     pub name: String,
     pub r#type: Type,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FunctionSymbol {
     // default information
     pub file_id: FileId,
@@ -226,7 +303,7 @@ pub struct FunctionSymbol {
 }
 
 /// for now just static typing
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ParameterInfo {
     pub name: String,
     pub var_type: Type,
@@ -236,11 +313,13 @@ pub struct ParameterInfo {
     // pub inferred_type: Option<Type>, // update after type checking
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct VariableSymbol {
     pub name: String,
     pub declared_type: Type,
     pub initializer: Option<NodeId>,
+
+    pub is_mutable: bool,
 
     /// mark if type is Type::Inference
     /// use
