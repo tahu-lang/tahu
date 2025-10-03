@@ -63,7 +63,7 @@ pub enum MirType {
         name: String,
         fields: Vec<(String, MirType)>,
     },
-    Named(String),
+    // Named(String),
 }
 
 impl MirType {
@@ -99,7 +99,7 @@ impl MirType {
     pub fn is_aggregate(&self) -> bool {
         match self {
             MirType::Array { .. } => true,
-            MirType::Named(_) => true,
+            // MirType::Named(_) => true,
             MirType::Struct { .. } => true,
             _ => false,
         }
@@ -230,7 +230,7 @@ impl ToMirType for Type {
                 }
             },
             Type::Pointer(ty) => MirType::Pointer(Box::new(ty.to_mir_ty())),
-            Type::Named(s) => MirType::Named(s.clone()),
+            // Type::Named(s) => MirType::Named(s.clone()),
             Type::Null => MirType::Null,
             _ => {
                 panic!("Unsupported type: {:?}", self);
@@ -273,7 +273,7 @@ impl Display for MirType {
                     write!(f, "struct {} {{ {} }}", name, fields_str)
                 }
             },
-            MirType::Named(name) => write!(f, "%{}", name),
+            // MirType::Named(name) => write!(f, "%{}", name),
         }
     }
 }
