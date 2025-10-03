@@ -59,6 +59,7 @@ impl<'a> ControlFlowAnalyzer<'a> {
                 name: var.name.clone(),
                 declared_type: var.variable_type.clone(),
                 need_inferred: var.variable_type.is_inferred(),
+                is_mutable: var.is_mutable,
                 inferred_type: None,
                 initializer: None,
                 final_type: var.variable_type.clone(),
@@ -137,6 +138,12 @@ impl<'a> ControlFlowAnalyzer<'a> {
                 false
             }
 
+            StatementKind::Assignment { left, right, .. } => {
+                self.analyze_expression(left);
+                self.analyze_expression(right);
+                false
+            }
+
             StatementKind::Expression(expr) => {
                 self.analyze_expression(expr);
                 false
@@ -165,7 +172,7 @@ impl<'a> ControlFlowAnalyzer<'a> {
                     // This is fine for variables declared outside current function
                 } else {
                     // Variable doesn't exist - should have been caught in symbol resolution
-                    println!("Error: Undefined variable '{}'", ident);
+                    // println!("Error: Undefined variable '{}'", ident);
                 }
             }
 

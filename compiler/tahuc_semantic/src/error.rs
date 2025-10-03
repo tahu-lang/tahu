@@ -64,6 +64,22 @@ pub enum SemanticError {
         span: Span,
     },
 
+    NotStruct {
+        name: String,
+        span: Span,
+    },
+
+    NotFunction {
+        name: String,
+        span: Span,
+    },
+
+    NotVariable {
+        name: String,
+        span: Span,
+    },
+
+
     Raw {
         message: String,
         span: Span,
@@ -151,6 +167,21 @@ impl SemanticError {
 
             SemanticError::Unreachable { span } => {
                 Diagnostic::warning("unreachable code")
+                    .with_span(*span)
+            }
+
+            SemanticError::NotStruct { name, span } => {
+                Diagnostic::error(format!("`{}` is not a struct", name))
+                    .with_span(*span)
+            }
+
+            SemanticError::NotFunction { name, span } => {
+                Diagnostic::error(format!("`{}` is not a function", name))
+                    .with_span(*span)
+            }
+
+            SemanticError::NotVariable { name, span } => {
+                Diagnostic::error(format!("`{}` is not a variable", name))
                     .with_span(*span)
             }
 

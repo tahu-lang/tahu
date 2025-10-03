@@ -6,7 +6,8 @@ use crate::Parser;
 
 fn create_parser(input: &'_ str) -> Parser<'_> {
     let reporter = Box::leak(Box::new(DiagnosticReporter::new()));
-    let mut lexer = Lexer::new(input.to_string(), FileId(0), reporter);
+    let binding = input.to_string();
+    let mut lexer = Lexer::new(&binding, FileId(0), reporter);
     let lexer_result = lexer.tokenize();
     Parser::new(FileId(0), lexer_result, reporter)
 }

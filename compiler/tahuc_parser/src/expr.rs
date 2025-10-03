@@ -198,7 +198,7 @@ impl<'a> Parser<'a> {
                     if !self.check(TokenKind::RightParen) {
                         arguments = self.parse_arguments()?;
                     }
-                    let right_parent = self.consume(TokenKind::RightParen, "Expected ')' after arguments").cloned();
+                    let right_parent = self.consume_owned(TokenKind::RightParen, "Expected ')' after arguments");
                     self.report_error(right_parent);
                     let span = self.get_last_span();
                     let span = self.make_span_fspan(expr.span, span);

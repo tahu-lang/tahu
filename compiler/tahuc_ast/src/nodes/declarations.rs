@@ -13,10 +13,25 @@ pub type Declaration = AstNode<DeclarationKind>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DeclarationKind {
+    Import(Import),
     Struct(Struct),
     Fn(Function),
     Variable(Variable),
     Extern(ExternFn),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Import {
+    pub imports: Vec<AstNode<ImportTable>>,
+    pub is_wildcard: bool,
+    pub path: String,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportTable {
+    pub name: String,
+    pub alias: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -43,7 +58,7 @@ pub struct ExternFn {
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Visibility {
     Public,
     Private,

@@ -27,7 +27,7 @@ pub struct LexerResult {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(input: String, file_id: FileId, reporter: &'a mut DiagnosticReporter) -> Self {
+    pub fn new(input: &'a String, file_id: FileId, reporter: &'a mut DiagnosticReporter) -> Self {
         let mut lexer = Self {
             chars: input.chars().collect(),
             current_char: None,

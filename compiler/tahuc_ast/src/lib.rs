@@ -39,6 +39,34 @@ impl AstBuilder {
         id
     }
 
+    pub fn build_import(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        import: Import,
+    ) -> Declaration {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            DeclarationKind::Import(import)
+        )
+    }
+
+    pub fn build_import_table(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        table: ImportTable,
+    ) -> AstNode<ImportTable> {
+        AstNode::new(
+            self.next_id(),
+            span,
+            file_id,
+            table
+        )
+    }
+
     pub fn build_struct_declaration(
         &mut self,
         span: Span,
