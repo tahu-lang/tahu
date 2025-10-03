@@ -1,0 +1,20 @@
+fn true_cond() {
+    if true {
+        // todo
+    }
+}
+
+fn expr_cond() {
+    var a = 10;
+    if a < 10 {
+        // todo
+    }
+}
+
+fn nested_if() {
+    var a = 10;
+    if a < 10 {
+        if a > 5 {
+        }
+    }
+}

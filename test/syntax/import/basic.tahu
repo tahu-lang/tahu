@@ -1,0 +1,9 @@
+// wildcard
+//import * from fixtures;
+
+// form global
+import { max } from "fixtures";
+
+fn main() {
+    max();
+}

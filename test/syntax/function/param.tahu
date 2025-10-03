@@ -1,0 +1,8 @@
+fn main() {
+    param_int(1);
+    param_double(1.1);
+}
+
+fn param_int(i: int) {}
+
+fn param_double(d: double) {}

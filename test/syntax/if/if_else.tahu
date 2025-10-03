@@ -1,0 +1,19 @@
+fn basic() {
+    if true {
+        // todo
+    } else {
+        // todo
+    }
+}
+
+fn nested() {
+    if true {
+        if true {
+            // todo
+        }
+    } else {
+        if true {
+            // todo
+        }
+    }
+}

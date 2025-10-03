@@ -1,0 +1,12 @@
+fn main() {
+    nothing();
+    should_return_int();
+}
+
+// call unit
+fn nothing() {}
+
+// call with return
+fn should_return_int() int {
+    return 1;
+}

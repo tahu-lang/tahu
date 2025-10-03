@@ -1,0 +1,4 @@
+fn main() {
+    val a = 10;
+    var b = a;
+}
