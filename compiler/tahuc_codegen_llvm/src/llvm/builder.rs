@@ -1,5 +1,3 @@
-use std::ffi::CString;
-
 use tahuc_llvm::{
     core::*,
     opaque::{LLVMBuilderRef, LLVMValueRef},
@@ -8,6 +6,8 @@ use tahuc_llvm::{
 use crate::llvm::{
     AsValueRef, BasicBlock, BasicValue, FloatValue, FunctionValue, IntValue, LLVMCastKind, PhiValue, PointerValue, Type, Values
 };
+
+static EMPTY_CSTR: &std::ffi::CStr = unsafe { std::ffi::CStr::from_bytes_with_nul_unchecked(b"\0") };
 
 pub struct Builder {
     pub(crate) inner: LLVMBuilderRef,
@@ -190,7 +190,6 @@ impl Builder {
     }
 
     pub(crate) fn default_zero_name(&self) -> *const i8 {
-        let res = CString::new("").unwrap();
-        res.as_ptr()
+        EMPTY_CSTR.as_ptr()
     }
 }
