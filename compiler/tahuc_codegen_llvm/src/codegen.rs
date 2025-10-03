@@ -30,6 +30,8 @@ pub struct Codegen {
 
     pub(crate) struct_types: HashMap<String, StructType>,
     pub(crate) global_types: HashMap<GlobalId, Type>,
+
+    next_global_id: u32,
 }
 
 impl Codegen {
@@ -52,6 +54,8 @@ impl Codegen {
 
             struct_types: HashMap::new(),
             global_types: HashMap::new(),
+
+            next_global_id: 0,
         }
     }
 
@@ -93,7 +97,7 @@ impl Codegen {
         }
     }
 
-    pub(crate) fn operand_value(&self, operand: &MirOperand) -> Result<BasicValue, String> {
+    pub(crate) fn operand_value(&mut self, operand: &MirOperand) -> Result<BasicValue, String> {
         match operand {
             MirOperand::Local(id) => self
                 .value_map
@@ -104,7 +108,7 @@ impl Codegen {
         }
     }
 
-    pub(crate) fn compile_constant(&self, constant: &MirConstant) -> BasicValue {
+    pub(crate) fn compile_constant(&mut self, constant: &MirConstant) -> BasicValue {
         match constant {
             MirConstant::Int { value, ty } => {
                 let ty = self.int_ty(ty);
@@ -120,12 +124,21 @@ impl Codegen {
             MirConstant::Null(_) => self.context.ptr_ty().const_null().into(),
             MirConstant::Char(c) => self.context.i8_ty().const_int(*c as u64, false).into(),
             MirConstant::String(s) => {
-                let value = self.context.const_string(s.as_bytes(), false);
+                let value = self.context.const_string(s.as_bytes(), true);
+                let id = self.next_global_id();
+                let name = format!("str_{}_{}", self.file_id.0, id);
                 let global_string = self
                     .module
-                    .add_global(value.get_type(), &format!("str_{}", self.file_id.0));
+                    .add_global(value.get_type(), &name);
                 global_string.set_initializer(value.into());
-                global_string.as_ptr().into()
+
+                let zero = self.context.i32_ty().const_int(0, false);
+                let ptr = self.builder.gep(
+                    value.get_type(),
+                    global_string.as_ptr(),
+                    [zero, zero].as_slice()
+                );
+                ptr.into()
             }
         }
     }
@@ -140,6 +153,12 @@ impl Codegen {
     pub(crate) fn add_ptr(&mut self, target: LocalId, ptr: PointerValue) {
         self.ptr_map.insert(target, ptr);
         self.value_map.insert(target, ptr.into());
+    }
+
+    pub(crate) fn next_global_id(&mut self) -> GlobalId {
+        let id = self.next_global_id;
+        self.next_global_id += 1;
+        id
     }
 
     pub fn verify(&self) {
