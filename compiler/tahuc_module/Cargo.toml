@@ -1,0 +1,11 @@
+[package]
+name = "tahuc_module"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tahuc_diagnostics = { path = "../tahuc_diagnostics" }
+tahuc_span = { path = "../tahuc_span" }
+tahuc_lexer = { path = "../tahuc_lexer" }
+tahuc_ast = { path = "../tahuc_ast" }
+tahuc_parser = { path = "../tahuc_parser" }
