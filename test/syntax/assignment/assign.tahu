@@ -1,0 +1,17 @@
+fn basic() {
+    var a: i32 = 10;
+
+    a = 20;
+}
+
+fn infer() {
+    var a = 10;
+
+    a = 20;
+}
+
+fn assign_float() {
+    var a = 1.1;
+
+    a = 2.1;
+}

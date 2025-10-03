@@ -1,0 +1,12 @@
+fn main() {
+    while true {
+        break;
+    }
+}
+
+fn update() {
+    var i = 0;
+    while i < 10 {
+        i++;
+    }
+}

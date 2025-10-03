@@ -1,0 +1,11 @@
+fn should_return() int {
+    return 1;
+}
+
+fn float() f32 {
+    return 1.1;
+}
+
+fn void() {
+    return;
+}
