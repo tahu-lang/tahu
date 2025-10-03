@@ -49,6 +49,26 @@ impl HirPrinter {
     pub fn print_module(&mut self, module: &HirModule) {
         self.print_node("Module");
         self.with_child(true, |printer| {
+            for (i, ty) in module.structs.iter().enumerate() {
+                let is_last = i == module.structs.len() - 1;
+                printer.with_child(is_last, |printer| {
+                    printer.print_node(&format!("Struct: {}", &ty.name));
+                    printer.with_child(true, |printer| {
+                        printer.print_node("Fields");
+                        for (i, field) in ty.fields.iter().enumerate() {
+                            let is_last = i == ty.fields.len() - 1;
+                            printer.with_child(is_last, |printer| {
+                                printer.print_node(&format!("Field: {}", &field.name));
+                                printer.with_child(true, |printer| {
+                                    printer.print_node(&format!("Type: {}", &field.ty));
+                                });
+                            });
+                        }
+                    });
+                });
+            }
+        });
+        self.with_child(true, |printer| {
             for (i, function) in module.extern_functions.iter().enumerate() {
                 let is_last = i == module.functions.len() - 1;
                 printer.with_child(is_last, |printer| {
