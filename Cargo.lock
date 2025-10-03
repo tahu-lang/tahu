@@ -3,6 +3,122 @@
 version = 4
 
 [[package]]
+name = "atty"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9b39be18770d11421cdb1b9947a45dd3f37e93092cbf377614828a319d5fee8"
+dependencies = [
+ "hermit-abi",
+ "libc",
+ "winapi",
+]
+
+[[package]]
+name = "hermit-abi"
+version = "0.1.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "itoa"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
+
+[[package]]
+name = "libc"
+version = "0.2.176"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "58f929b4d672ea937a23a1ab494143d968337a5f47e56d0815df1e0890ddf174"
+
+[[package]]
+name = "memchr"
+version = "2.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f52b00d39961fc5b2736ea853c9cc86238e165017a493d1d5c8eac6bdc4cc273"
+
+[[package]]
+name = "proc-macro2"
+version = "1.0.101"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "89ae43fd86e4158d6db51ad8e2b80f313af9cc74f5c0e03ccb87de09998732de"
+dependencies = [
+ "unicode-ident",
+]
+
+[[package]]
+name = "quote"
+version = "1.0.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1885c039570dc00dcb4ff087a89e185fd56bae234ddc7f056a945bf36467248d"
+dependencies = [
+ "proc-macro2",
+]
+
+[[package]]
+name = "ryu"
+version = "1.0.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28d3b2b1366ec20994f1fd18c3c594f05c5dd4bc44d8bb0c1c632c8d6829481f"
+
+[[package]]
+name = "serde"
+version = "1.0.227"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80ece43fc6fbed4eb5392ab50c07334d3e577cbf40997ee896fe7af40bba4245"
+dependencies = [
+ "serde_core",
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_core"
+version = "1.0.227"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a576275b607a2c86ea29e410193df32bc680303c82f31e275bbfcafe8b33be5"
+dependencies = [
+ "serde_derive",
+]
+
+[[package]]
+name = "serde_derive"
+version = "1.0.227"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51e694923b8824cf0e9b382adf0f60d4e05f348f357b38833a3fa5ed7c2ede04"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "serde_json"
+version = "1.0.145"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "402a6f66d8c709116cf22f558eab210f5a50187f702eb4d7e5ef38d9a7f1c79c"
+dependencies = [
+ "itoa",
+ "memchr",
+ "ryu",
+ "serde",
+ "serde_core",
+]
+
+[[package]]
+name = "syn"
+version = "2.0.106"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ede7c438028d4436d71104916910f5bb611972c5cfd7f89b8300a8186e6fada6"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "unicode-ident",
+]
+
+[[package]]
 name = "tahuc"
 version = "0.1.0"
 dependencies = [
@@ -10,5 +126,140 @@ dependencies = [
 ]
 
 [[package]]
+name = "tahuc_ast"
+version = "0.1.0"
+dependencies = [
+ "tahuc_lexer",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_codegen_llvm"
+version = "0.1.0"
+dependencies = [
+ "tahuc_ast",
+ "tahuc_hir",
+ "tahuc_llvm",
+ "tahuc_mir",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_diagnostics"
+version = "0.1.0"
+dependencies = [
+ "atty",
+ "serde",
+ "serde_json",
+ "tahuc_span",
+]
+
+[[package]]
 name = "tahuc_driver"
 version = "0.1.0"
+dependencies = [
+ "tahuc_codegen_llvm",
+ "tahuc_diagnostics",
+ "tahuc_hir",
+ "tahuc_llvm",
+ "tahuc_mir",
+ "tahuc_module",
+ "tahuc_semantic",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_hir"
+version = "0.1.0"
+dependencies = [
+ "tahuc_ast",
+ "tahuc_lexer",
+ "tahuc_module",
+ "tahuc_semantic",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_lexer"
+version = "0.1.0"
+dependencies = [
+ "tahuc_diagnostics",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_llvm"
+version = "0.1.0"
+
+[[package]]
+name = "tahuc_mir"
+version = "0.1.0"
+dependencies = [
+ "tahuc_ast",
+ "tahuc_hir",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_module"
+version = "0.1.0"
+dependencies = [
+ "tahuc_ast",
+ "tahuc_diagnostics",
+ "tahuc_lexer",
+ "tahuc_parser",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_parser"
+version = "0.1.0"
+dependencies = [
+ "tahuc_ast",
+ "tahuc_diagnostics",
+ "tahuc_lexer",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_semantic"
+version = "0.1.0"
+dependencies = [
+ "tahuc_ast",
+ "tahuc_diagnostics",
+ "tahuc_lexer",
+ "tahuc_module",
+ "tahuc_span",
+]
+
+[[package]]
+name = "tahuc_span"
+version = "0.1.0"
+
+[[package]]
+name = "unicode-ident"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f63a545481291138910575129486daeaf8ac54aee4387fe7906919f7830c7d9d"
+
+[[package]]
+name = "winapi"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c839a674fcd7a98952e593242ea400abe93992746761e38641405d28b00f419"
+dependencies = [
+ "winapi-i686-pc-windows-gnu",
+ "winapi-x86_64-pc-windows-gnu",
+]
+
+[[package]]
+name = "winapi-i686-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
+
+[[package]]
+name = "winapi-x86_64-pc-windows-gnu"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"

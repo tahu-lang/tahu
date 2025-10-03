@@ -31,5 +31,6 @@ jobs:
 
     - name: Compiler test
       run: |
-        python3 test/runner.py
+        working-directory: test
+        python3 runner.py
         
