@@ -1,5 +1,9 @@
+use std::collections::HashMap;
+
 use tahuc_ast::Module;
 use tahuc_diagnostics::reporter::DiagnosticReporter;
+use tahuc_module::resolver::ModuleResult;
+use tahuc_span::FileId;
 
 use crate::{
     database::Database,
@@ -29,22 +33,22 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn analyze_depedencies(&mut self, modules: &Vec<Module>) -> Database {
+    pub fn analyze_depedencies(&mut self, modules: &HashMap<FileId, ModuleResult>) -> Database {
         // phase 1 collect all ymbols, type
-        for module in modules {
-            self.database.add_file(module.file);
+        for (file_id, _) in modules {
+            self.database.add_file(*file_id);
         }
         self.collector(modules);
-        
-        for module in modules {
-            // phase 2 resolve symbol reference
-            self.resolve_reference(module);
 
+        // phase 2 resolve symbol reference
+        self.resolve_reference(&modules);
+
+        for (_, res) in modules {
             // phase 3 type checking
-            self.type_checking(module);
-            
+            self.type_checking(&res.module);
+
             // phase 4 control flow analyze
-            self.control_flow_analyze(module);
+            self.control_flow_analyze(&res.module);
         }
 
         // collect error and report
@@ -53,12 +57,12 @@ impl<'a> Analyzer<'a> {
         self.database.clone()
     }
 
-    fn collector(&mut self, modules: &Vec<Module>) {
+    fn collector(&mut self, modules: &HashMap<FileId, ModuleResult>) {
         let mut collector = Collector::new(&mut self.database);
         collector.analyze_module(modules);
     }
 
-    fn resolve_reference(&mut self, module: &Module) {
+    fn resolve_reference(&mut self, module: &HashMap<FileId, ModuleResult>) {
         let mut resolver = SymbolResolution::new(&mut self.database);
         resolver.analyze_module(module);
     }

@@ -24,7 +24,7 @@ impl<'a> Parser<'a> {
             TokenKind::Continue => self.parse_continue(),
             TokenKind::Break => self.parse_break(),
             _ => {
-                self.log_current_token();
+                self.switch_expression_context();
                 Ok(self.expression_statement()?)
             }
         }

@@ -1,11 +1,13 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
     pub start: Position,
     pub end: Position,
     pub file_id: FileId,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Position {
     pub line: u32,    // 1-based
     pub column: u32,  // 1-based
@@ -72,13 +74,15 @@ pub struct SourceFile {
 }
 
 impl SourceFile {
-    pub fn new(id: FileId, path: String, content: String) -> Self {
+    pub fn new(id: FileId, path: String, content: &String) -> Self {
         let mut lines = vec![0];
         for (i, ch) in content.char_indices() {
             if ch == '\n' {
                 lines.push(i + 1);
             }
         }
+        let path = pretty_path_from_string(path);
+        let content = content.to_string();
         Self { id, path, content, lines }
     }
 
@@ -94,4 +98,18 @@ impl SourceFile {
         let end = span.end.offset as usize;
         self.content.get(start..end)
     }
+}
+
+fn pretty_path(path: &PathBuf) -> String {
+    let s = path.display().to_string();
+    if cfg!(windows) {
+        s.trim_start_matches(r"\\?\").to_string()
+    } else {
+        s
+    }
+}
+
+fn pretty_path_from_string(path: String) -> String {
+    let path = PathBuf::from(path);
+    pretty_path(&path)
 }

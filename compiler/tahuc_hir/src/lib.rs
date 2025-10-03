@@ -1,12 +1,13 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::PathBuf};
 
 use tahuc_ast::{
     nodes::{
-        declarations::{DeclarationKind, ExternFn, Function}, expressions::{Argument, ExpressionKind}, op::UnaryOp, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
+        ast::NodeId, declarations::{DeclarationKind, ExternFn, Function}, expressions::{Argument, ExpressionKind}, op::UnaryOp, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
     }, ty::Type, Module
 };
 use tahuc_lexer::token::Literal;
-use tahuc_semantic::database::Database;
+use tahuc_module::resolver::ModuleResult;
+use tahuc_semantic::{database::Database, symbol::Symbol};
 use tahuc_span::FileId;
 
 use crate::{
@@ -109,10 +110,10 @@ impl<'a> Hir<'a> {
         id
     }
 
-    fn collect_declaration(&mut self, modules: &Vec<Module>) {
-        for module in modules {
-            self.files.push(module.file);
-            for declaration in &module.declaration {
+    fn collect_declaration(&mut self, modules: &HashMap<FileId, ModuleResult>) {
+        for (file_id, result) in modules {
+            self.files.push(*file_id);
+            for declaration in &result.module.declaration {
                 match &declaration.kind {
                     DeclarationKind::Struct(struct_decl) => {
                         let id = self.next_id_struct();
@@ -122,7 +123,8 @@ impl<'a> Hir<'a> {
                             fields.push(HirField {
                                 id: field_id,
                                 name: field.kind.name.clone(),
-                                ty: field.kind.r#type.clone(),
+                                // ty: self.db.get_type(field_id, id),
+                                ty: self.get_type(field_id).unwrap().clone(),
                             });
                             field_id += 1;
                         }
@@ -131,13 +133,14 @@ impl<'a> Hir<'a> {
                             name: struct_decl.name.clone(),
                             fields: fields,
                             visibility: struct_decl.visibility.to_hir(),
-                            ty: struct_decl.ty.clone(),
+                            // ty: struct_decl.ty.clone(),
+                            ty: self.get_type(declaration.id).unwrap().clone(),
                         };
 
 
                         self
                             .structs_map
-                            .entry(module.file)
+                            .entry(*file_id)
                             .or_default()
                             .insert(struct_decl.name.clone(), struct_dec);
                         
@@ -145,13 +148,13 @@ impl<'a> Hir<'a> {
                     DeclarationKind::Fn(func) => {
                         let id = self.next_id_function();
 
-                        self.add_function(module.file, id, func.kind.name.clone());
+                        self.add_function(*file_id, id, func.kind.name.clone());
 
                         self.add_signature_func(id, func);
                     }
                     DeclarationKind::Extern(extern_func) => {
                         let id = self.next_id_function();
-                        self.add_function(module.file, id, extern_func.name.clone());
+                        self.add_function(*file_id, id, extern_func.name.clone());
 
                         self.add_signature_ex_func(id, extern_func);
                     }
@@ -161,18 +164,18 @@ impl<'a> Hir<'a> {
         }
     }
 
-    pub fn to_hir(&mut self, modules: &Vec<Module>) -> Vec<HirModule> {
+    pub fn to_hir(&mut self, modules: &HashMap<FileId, ModuleResult>) -> HashMap<FileId, (HirModule, PathBuf)> {
         // First pass: Register all function names with IDs
         self.collect_declaration(modules);
 
-        let mut hir_modules = Vec::new();
+        let mut hir_modules = HashMap::new();
 
-        for module in modules {
-            self.file_id = module.file;
-            self.current_file = Some(module.file);
+        for (file_id, result) in modules {
+            self.file_id = *file_id;
+            self.current_file = Some(*file_id);
             self.clear_state();
 
-            hir_modules.push(self.lowering_module(module));
+            hir_modules.insert(*file_id, (self.lowering_module(&result.module), result.path.clone()));
         }
 
         hir_modules
@@ -223,7 +226,6 @@ impl<'a> Hir<'a> {
         }
 
         for (id, _) in &self.pendings_extern_fn {
-            println!("pending extern fn {}", id);
             let signature = self.function_signature.get(id).unwrap();
             let extern_fn = HirExternFunction {
                 id: *id,
@@ -646,7 +648,7 @@ impl<'a> Hir<'a> {
 
                 match &callee.function.kind {
                     ExpressionKind::Identifier(ident) => {
-                        let fid = self.get_function_id(ident.to_string()).unwrap();
+                        let fid = self.get_function_id(callee.function.id, ident.to_string()).unwrap();
                         let signature = self.get_signature(fid);
                         return Ok(HirExpression::Call {
                             callee: fid,
@@ -664,7 +666,7 @@ impl<'a> Hir<'a> {
 
                 let fun = match &callee.function.kind {
                     ExpressionKind::Identifier(ident) => {
-                        self.get_function_id(ident.to_string())
+                        self.get_function_id(callee.function.id, ident.to_string())
                     }
                     _ => None,
                 };
@@ -728,10 +730,10 @@ impl<'a> Hir<'a> {
                 }
             
             }
-            _ => {
+            // _ => {
 
-                Err(format!("Not Support expression {:?}", expr.kind))
-            },
+            //     Err(format!("Not Support expression {:?}", expr.kind))
+            // },
         }
     }
 
@@ -750,19 +752,29 @@ impl<'a> Hir<'a> {
         self.functions_map.entry(file_id).or_default().insert(name, id);
     }
 
-    fn get_function_id(&mut self, name: String) -> Option<FunctionId> {
-        for file_id in self.functions_map.keys() {
-            if let Some(id) = self.functions_map.get(file_id).unwrap().get(&name) {
-                if let Some(current_file) = self.current_file {
-                    if file_id.0 != current_file.0 {
-                        self.pendings_extern_fn.insert(*id, name);
-                    }
-                }
-                return Some(*id);
+    fn get_function_id(&mut self, id: NodeId, name: String) -> Option<FunctionId> {
+        let function = self
+            .get_symbol(id)
+            .and_then(|symbol| symbol.get_function())?;
+
+        let file_id = function.file_id;
+
+        let function_id = self
+            .functions_map
+            .get(&function.file_id)
+            .and_then(|fmap| fmap.get(&function.name))
+            .cloned()?;
+
+        if let Some(current_file_id) = self.current_file {
+            if file_id.0 != current_file_id.0 {
+                self.pendings_extern_fn.insert(function_id, name);
             }
         }
-        None
+
+        Some(function_id)
     }
+
+    // fn lookup_function_id()
 
     fn add_signature_func(&mut self, id: u32, func: &Function) {
         let params: Vec<HirParameters> = func
@@ -817,6 +829,10 @@ impl<'a> Hir<'a> {
         self.db.get_type(self.file_id, id)
     }
 
+    fn get_symbol(&self, id: NodeId) -> Option<&Symbol> {
+        self.db.get_symbol(self.file_id, id)
+    }
+
     fn find_struct_field(&self, struct_name: &str, field_name: &str) -> Option<&HirField> {
         // Cari struct berdasarkan nama
         if let Some(struct_map) = self.structs_map.get(&self.file_id) {
@@ -832,8 +848,8 @@ impl<'a> Hir<'a> {
         None
     }
 
-    pub fn print_debug(&self, hir_modules: &Vec<HirModule>) {
-        for module in hir_modules {
+    pub fn print_debug(&self, hir_modules: &HashMap<FileId, (HirModule, PathBuf)>) {
+        for (_, (module, _)) in hir_modules {
             let mut printer = HirPrinter::new();
             printer.print_module(module);
         }

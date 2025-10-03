@@ -1,6 +1,6 @@
 use tahuc_ast::{
     nodes::{
-        ast::NodeId, declarations::{Declaration, DeclarationKind}, expressions::ExpressionKind, op::{AssignmentOp, BinaryOp, UnaryOp}, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
+        ast::NodeId, declarations::{Declaration, DeclarationKind}, expressions::ExpressionKind, op::{BinaryOp, UnaryOp}, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
     }, ty::{PrimitiveType, Type}, Module
 };
 use tahuc_lexer::token::Literal;
@@ -54,6 +54,7 @@ impl<'a> TypeAnalyzer<'a> {
                                 name: p.kind.name.clone(),
                                 declared_type: ty.clone(),
                                 initializer: None,
+                                is_mutable: true,
 
                                 need_inferred: false,
                                 inferred_type: None,
@@ -68,6 +69,7 @@ impl<'a> TypeAnalyzer<'a> {
                                         name: p.kind.name.clone(),
                                         declared_type: Type::Error,
                                         initializer: None,
+                                        is_mutable: true,
 
                                         need_inferred: false,
                                         inferred_type: None,
@@ -109,20 +111,16 @@ impl<'a> TypeAnalyzer<'a> {
                 if let Some(initializer) = &var.initializer {
                     let result = self.resolve_expression(initializer, Some(var.variable_type.clone()));
 
-                    let symbol = Symbol {
-                        name: var.name.clone(),
-                        span: var.span,
-                        kind: SymbolKind::Variable(VariableSymbol {
-                            name: var.name.clone(),
-                            declared_type: var.variable_type.clone(),
-                            need_inferred: var.variable_type.is_inferred(),
-                            inferred_type: Some(result.clone()),
-                            initializer: None,
-                            final_type: result.clone(),
-                        }),
+                    let Some(_) = self.get_symbol(statement.id) else {
+                        return;
                     };
 
-                    let _ = self.add_symbol(symbol);
+                    self.update_symbol(statement.id, |symbol| {
+                        symbol.update_variable(|variable| {
+                            variable.final_type = result.clone();
+                        });
+                    });
+
                     self.add_type(statement.id, result.clone());
 
                     if var.variable_type.is_named() {
@@ -135,9 +133,6 @@ impl<'a> TypeAnalyzer<'a> {
                                         found: result.to_string(),
                                         span: var.span,
                                     });
-                                    return;
-                                } else {
-                                    self.add_type(statement.id, result.clone());
                                     return;
                                 }
                             }
@@ -155,36 +150,24 @@ impl<'a> TypeAnalyzer<'a> {
                         });
                     }
                 } else {
-                    let symbol = Symbol {
-                        name: var.name.clone(),
-                        span: var.span,
-                        kind: SymbolKind::Variable(VariableSymbol {
-                            name: var.name.clone(),
-                            declared_type: var.variable_type.clone(),
-                            need_inferred: var.variable_type.is_inferred(),
-                            inferred_type: None,
-                            initializer: None,
-                            final_type: var.variable_type.clone(),
-                        }),
-                    };
-
-                    let _ = self.add_symbol(symbol);
                     self.add_type(statement.id, var.variable_type.clone());
                 }
             }
             StatementKind::Assignment { left, right, .. } => {
-                let left_ty = self.resolve_expression(&left, None);
-                let right_ty = self.resolve_expression(&right, Some(left_ty.clone()));
-
-                if !self.is_assignable_type(&left_ty, &right_ty) {
-                    self.db.report_error(SemanticError::TypeMismatch {
-                        msg: format!("Assignment type mismatch"),
-                        expected: left_ty.to_string(),
-                        found: right_ty.to_string(),
-                        span: statement.span,
-                    });
-                } else {
-                    self.add_type(statement.id, left_ty);
+                if self.can_assign_left_value(&left) {
+                    let left_ty = self.resolve_expression(&left, None);
+                    let right_ty = self.resolve_expression(&right, Some(left_ty.clone()));
+    
+                    if !self.is_assignable_type(&left_ty, &right_ty) {
+                        self.db.report_error(SemanticError::TypeMismatch {
+                            msg: format!("Assignment type mismatch"),
+                            expected: left_ty.to_string(),
+                            found: right_ty.to_string(),
+                            span: statement.span,
+                        });
+                    } else {
+                        self.add_type(statement.id, left_ty);
+                    }
                 }
             }
             StatementKind::Return(ret) => {
@@ -251,6 +234,41 @@ impl<'a> TypeAnalyzer<'a> {
                 ElseBranch::Block(block) => self.resolve_block(block),
                 ElseBranch::If(else_if_stmt) => self.resolve_if_statement(else_if_stmt),
             }
+        }
+    }
+
+    fn can_assign_left_value(&mut self, expression: &Expression) -> bool {
+        match &expression.kind {
+            ExpressionKind::Identifier(ident) => {
+                if let Some(symbol) = self.get_symbol(expression.id) {
+                    if let SymbolKind::Variable(var) = &symbol.kind {
+                        if !var.is_mutable {
+                            self.db.report_error(SemanticError::CannotAssignImmutable {
+                                name: ident.clone(),
+                                span: expression.span,
+                            });
+                            return false;
+                        }
+                    }
+                }
+
+                true
+            }
+            ExpressionKind::ArrayAccess { array, .. } => {
+                self.can_assign_left_value(array)
+            }
+            ExpressionKind::MemberAccess { object, .. } => {
+                self.can_assign_left_value(object)
+            }
+            ExpressionKind::Unary { op, operand } => {
+                match op {
+                    UnaryOp::Deref => {
+                        self.can_assign_left_value(operand)
+                    }
+                    _ => false
+                }
+            }
+            _ => false
         }
     }
 
@@ -321,8 +339,8 @@ impl<'a> TypeAnalyzer<'a> {
                 self.add_type(expression.id, result.clone());
                 result
             }
-            ExpressionKind::Identifier(ident) => {
-                self.read_variable(expression.id, ident)
+            ExpressionKind::Identifier(_) => {
+                self.read_variable(expression.id)
             }
             ExpressionKind::Ternary { condition, then, otherwise } => {
                 let cond = self.resolve_expression(&condition, Some(Type::Primitive(PrimitiveType::Bool)));
@@ -418,14 +436,37 @@ impl<'a> TypeAnalyzer<'a> {
                 result
             }
             ExpressionKind::FunctionCall(func) => {
-                // placeholder checking argument type
-                // placeholder checking return type
-                for arg in &func.arguments {
+                // let Ok(function) = self.resolve_function(&func.function) else {
+                //     self.db.report_error(SemanticError::Raw {
+                //         message: "Function not found".to_string(),
+                //         span: func.function.span,
+                //     });
+                //     return Type::Error;
+                // };
+                // let Some(symbol) = self.lookup_symbol(function.clone()) else {
+                //     self.db.report_error(SemanticError::Undefined {
+                //         name: function,
+                //         span: func.function.span,
+                //     });
+    
+                //     return Type::Error
+                // };
+
+                let Some(symbol) = self.get_symbol(func.function.id).cloned() else {
+                    return Type::Error;
+                };
+
+                let Some(signature) = symbol.get_function() else {
+                    return Type::Error;
+                };
+
+                for (i, arg) in func.arguments.iter().enumerate() {
                     let arg_expr = match arg {
                         tahuc_ast::nodes::expressions::Argument::Positional(expr) => expr,
                         tahuc_ast::nodes::expressions::Argument::Named { value, .. } => value,
                     };
-                    self.resolve_expression(arg_expr, None);
+                    let param_ty = signature.parameters[i].var_type.clone();
+                    self.resolve_expression(arg_expr, Some(param_ty));
                 }
 
                 let return_type = self.resolve_expression(&func.function, None);
@@ -493,7 +534,7 @@ impl<'a> TypeAnalyzer<'a> {
                     Type::String => Type::Primitive(PrimitiveType::Char),
                     Type::Pointer(inner) => *inner,
                     _ => {
-                        println!("Error: trying to index non-array");
+                        println!("Error: trying to index non-array {}", arr_ty);
                         // error: trying to index non-array
                         Type::Error
                     }
@@ -569,7 +610,7 @@ impl<'a> TypeAnalyzer<'a> {
                                 },
                                 None => {
                                     self.debug(format!("Resolving struct field '{}' with default value", field_name));
-                                    let value = self.read_variable(field_expr.id, field_name);
+                                    let value = self.read_variable(field_expr.id);
                                     value
                                 }
                             };
@@ -600,67 +641,31 @@ impl<'a> TypeAnalyzer<'a> {
 
                 struct_ty
             }
-            _ => {
-                self.db.report_error(SemanticError::Raw {
-                    message: "Not supported expression".to_string(),
-                    span: expression.span, 
-                });
-                self.add_type(expression.id, Type::Error);
-                Type::Error
-            }
+            // _ => {
+            //     self.db.report_error(SemanticError::Raw {
+            //         message: "Not supported expression".to_string(),
+            //         span: expression.span, 
+            //     });
+            //     self.add_type(expression.id, Type::Error);
+            //     Type::Error
+            // }
         }
     }
 
-    fn infer_assingment_operator_type(
-        &mut self,
-        left: &Type,
-        right: &Type,
-        operator: &AssignmentOp,
-    ) -> Result<Type, String> {
-        match operator {
-            AssignmentOp::Assign => match (left, right) {
-                (Type::Int, Type::Int) => Ok(Type::Int),
-                _ => Err(format!(
-                    "Cannot apply assigment operator '{:?}' to {:?} and {:?}",
-                    operator, left, right
-                )),
-            },
-            AssignmentOp::AddAssign
-            | AssignmentOp::SubAssign
-            | AssignmentOp::MulAssign
-            | AssignmentOp::DivAssign
-            | AssignmentOp::RemAssign => {
-                //  "+" | "-" | "*" | "/" | "%"
-                match (left, right) {
-                    (Type::Int, Type::Int) => Ok(Type::Int),
-                    (Type::Double, Type::Double) => Ok(Type::Double),
-                    (Type::Int, Type::Double) | (Type::Double, Type::Int) => Ok(Type::Double),
-                    // (Type::String, _) | (_, Type::String) if operator == "+" => Ok(Type::String),
-                    _ => Err(format!(
-                        "Cannot apply operator '{:?}' to {:?} and {:?}",
-                        operator, left, right
-                    )),
-                }
-            }
-            _ => {
-                println!("Assignment type mismatch!");
-                Err(format!("Unknow assingment opration {:?}", operator))
-            }
-        }
-    }
-
-    fn read_variable(&mut self, id: NodeId, ident: &String) -> Type {
-        if let Some(symbol) = self.lookup_symbol(ident.clone()) {
+    fn read_variable(&mut self, id: NodeId) -> Type {
+        if let Some(symbol) = self.get_symbol(id) {
+            self.debug(format!("symbol `{}` found", id));
             let ty = symbol.get_type();
             self.add_type(id, ty.clone());
             return ty;
         }
 
+        self.debug(format!("symbol `{}` not found", id));
         self.add_type(id, Type::Error);
         Type::Error
     }
 
-    fn infer_struct_literal(&mut self, field_ty: &Type, result_ty: Type, struct_name: &String, span: Span) {
+    fn infer_struct_literal(&mut self, field_ty: &Type, result_ty: Type, _struct_name: &String, span: Span) {
         if field_ty.is_named() {
             if field_ty.get_ty_named().unwrap() != result_ty.to_string() {}
             if field_ty.get_ty_named().unwrap() != result_ty.to_string() {
@@ -696,6 +701,8 @@ impl<'a> TypeAnalyzer<'a> {
                     (Type::Primitive(PrimitiveType::U8), Type::Primitive(PrimitiveType::U8)) => Ok(Type::Primitive(PrimitiveType::U8)),
                     (Type::Primitive(PrimitiveType::Char), Type::Primitive(PrimitiveType::U8)) => Ok(Type::Primitive(PrimitiveType::Char)),
                     (Type::Primitive(PrimitiveType::Char), Type::Int) => Ok(Type::Primitive(PrimitiveType::Char)),
+
+                    (Type::Primitive(PrimitiveType::I32), Type::Primitive(PrimitiveType::I32)) => Ok(Type::Primitive(PrimitiveType::I32)),
 
                     (Type::Int, Type::Int) => Ok(Type::Int),
                     (Type::Double, Type::Double) => Ok(Type::Double),
@@ -818,7 +825,18 @@ impl<'a> TypeAnalyzer<'a> {
         self.db.get_type(self.file_id, id)
     }
 
+    fn get_symbol(&self, id: NodeId) -> Option<&Symbol> {
+        self.db.get_symbol(self.file_id, id)
+    }
+
+    fn update_symbol<F>(&mut self, id: NodeId, f: F)
+    where 
+        F: FnMut(&mut Symbol)
+    {
+        self.db.update_symbol_db(self.file_id, id, f);
+    }
+
     fn debug(&self, msg: String) {
-        println!("DEBUG [TYPE] - {}", msg);
+        // println!("DEBUG [TYPE] - {}", msg);
     }
 }

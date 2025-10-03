@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use tahuc_ast::ty::Type;
-use tahuc_hir::hir::{HirBlock, HirLiteral, HirModule, HirStruct, StructId, VariableId};
-use tahuc_span::FileId;
+use tahuc_hir::hir::{HirBlock, HirLiteral, HirModule, StructId, VariableId};
 
 use crate::mir::{
     block::MirTerminator, function::{MirExternFunction, MirFunction}, instruction::MirOperand, ty::{MirConstant, MirType, ToMirType}, BasicBlockId, GlobalId, LocalId, MirModule

@@ -239,7 +239,8 @@ impl<'a> Lexer<'a> {
     
     fn tokenize_template_expression(&mut self, expr: &str) -> Result<Vec<Token>, LexerError> {
         let mut temp_reporter = DiagnosticReporter::new();
-        let mut sub_lexer = Lexer::new(expr.trim().to_string(), self.file_id, &mut temp_reporter);
+        let binding = expr.trim().to_string();
+        let mut sub_lexer = Lexer::new(&binding, self.file_id, &mut temp_reporter);
         let result = sub_lexer.tokenize();
         
         if temp_reporter.has_errors() {

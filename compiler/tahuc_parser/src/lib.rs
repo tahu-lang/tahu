@@ -1,9 +1,9 @@
 use tahuc_ast::{
     nodes::{
-        ast::AstNode, declarations::{Declaration, Parameter, ParameterKind, Visibility}, expressions::ExpressionKind, statements::Block, Expression
+        ast::AstNode, declarations::{Declaration, Import, ImportTable, Parameter, ParameterKind, Visibility}, expressions::ExpressionKind, statements::Block, Expression
     }, ty::{PrimitiveType, Type}, AstBuilder, Module
 };
-use tahuc_diagnostics::{diagnostic, reporter::DiagnosticReporter};
+use tahuc_diagnostics::reporter::DiagnosticReporter;
 use tahuc_lexer::{
     LexerResult,
     token::{Token, TokenKind},
@@ -51,7 +51,7 @@ pub struct Parser<'a> {
     pub(crate) reporter: &'a mut DiagnosticReporter,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParserResult {
     pub module: Module,
     pub has_errors: bool,
@@ -128,15 +128,7 @@ impl<'a> Parser<'a> {
     fn declaration(&mut self, visibility: Visibility) -> Result<Declaration, ParserError> {
         match self.peek().kind {
             TokenKind::Import => {
-                self.advance();
-                if self.check(TokenKind::Identifier) {
-                    self.advance();
-                    if self.check(TokenKind::As) {
-                        self.advance();
-                        self.consume(TokenKind::Identifier, "Expected name for alias module import")?;
-                    }
-                }
-                self.declaration(visibility)
+                self.parse_import()
             }
             TokenKind::Fn => {
                 let func = self.function_declaration(visibility)?;
@@ -163,6 +155,99 @@ impl<'a> Parser<'a> {
                 })
             }
         }
+    }
+
+    fn parse_import(&mut self) -> Result<Declaration, ParserError> {
+        self.advance();
+        let span = self.get_last_span();
+
+        let mut is_wildcard = false;
+        let mut table = Vec::new();
+
+        if self.check(TokenKind::Mul) {
+            self.advance();
+            is_wildcard = true;
+        } else {
+            let right_brace = self.consume_owned(TokenKind::LeftBrace, "Expected '{' for import");
+            self.report_error(right_brace);
+
+            while !self.check(TokenKind::RightBrace) && !self.is_at_end() {
+                let ident = self.consume_owned(TokenKind::Identifier, "Expected identifier for import");
+                let name_id = self.get_or_default(ident, self.dummy_token());
+    
+                let alias = if self.check(TokenKind::As) {
+                    self.advance();
+                    let ident = self.consume(TokenKind::Identifier, "Expected identifier for import").cloned();
+                    Some(self.get_or_default(ident, Token::dummy()).lexeme)
+                } else {
+                    None
+                };
+
+                let end_span = self.get_last_span();
+
+                let name = self.tokens[name_id].clone();
+                let span = self.make_span_fspan(name.span, end_span);
+
+                table.push(self.builder.build_import_table(span, self.file_id, ImportTable {
+                    name: name.lexeme.clone(),
+                    alias,
+                }));
+
+                if self.check(TokenKind::Comma) {
+                    self.advance();
+                    if self.check(TokenKind::RightBrace) {
+                        break;
+                    }
+                } else if !self.check(TokenKind::RightBrace) {
+                    let current = self.current_token();
+                    let err = ParserError::Expected {
+                        expected: format!(""),
+                        found: current.lexeme.clone(),
+                        span: current.span,
+                    };
+                    self.add_error(err);
+                    self.synchronize();
+                }
+            }
+        };
+
+        if !is_wildcard {
+            let rbrace = self.consume(TokenKind::RightBrace, "Expected '}' for import").cloned();
+            self.report_error(rbrace);
+        }
+
+        let from_kw = self.consume(TokenKind::From, "Expected from keyword after import").cloned();
+        self.report_error(from_kw);
+
+        // let result_path = self.consume(TokenKind::Literal(tahuc_lexer::token::Literal::String(s)), "").cloned();
+        let current_token = self.peek().clone();
+
+        let path = match &current_token.kind {
+            TokenKind::Literal(tahuc_lexer::token::Literal::String(s)) => s,
+            _ => {
+                let current_token = self.current_token();
+                return Err(ParserError::Expected {
+                    expected: format!("expected string path"),
+                    found: format!("but found `{}`", current_token.lexeme.clone()),
+                    span: current_token.span,
+                });
+            }
+        };
+
+        self.advance();
+
+        let semi = self.consume(TokenKind::Semicolon, "Expected ';' after import path").cloned();
+        self.report_error(semi);
+
+        let end_span = self.get_last_span();
+        // let span = span.merge(end_span);
+        let span = self.make_span_fspan(span, end_span);
+        Ok(self.builder.build_import(span, self.file_id, Import {
+            imports: table,
+            is_wildcard,
+            path: path.clone(),
+            span,
+        }))
     }
 
     /// for now just simple extern
@@ -194,7 +279,11 @@ impl<'a> Parser<'a> {
         let right_paren = self.consume(TokenKind::RightParen, "expected ')' after parameters").cloned();
         self.report_error(right_paren);
 
-        let return_type = self.parse_type()?;
+        let return_type = if self.check(TokenKind::Semicolon) {
+            Type::Primitive(PrimitiveType::Unit)
+        } else {
+            self.parse_type()?
+        };
 
         let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after extern function declaration").cloned();
         self.report_error(semi_colon);
@@ -275,10 +364,12 @@ impl<'a> Parser<'a> {
 
     fn parse_parameters(&mut self, is_extern: bool) -> Result<Parameter, ParserError> {
         let start_span = self.current_token().clone();
-        let result_name = self.consume(TokenKind::Identifier, "Expected parameter name").cloned();
-        let name = self.get_or_default(result_name, Token::dummy());
 
-        let colon = self.consume(TokenKind::Colon, "Expected ':' after parameter name").cloned();
+        let result_name = self.consume_owned(TokenKind::Identifier, "Expected parameter name");
+        let dummy = self.dummy_token();
+        let name_id = self.get_or_default(result_name, dummy);
+
+        let colon = self.consume_owned(TokenKind::Colon, "Expected ':' after parameter name");
         self.report_error(colon);
 
         let mut r#type = self.parse_type()?;
@@ -305,6 +396,8 @@ impl<'a> Parser<'a> {
 
         let end_span = self.get_last_span();
         let span = self.make_span_fspan(start_span.span, end_span);
+
+        let name = &self.tokens[name_id];
 
         Ok(self.builder.build_parameter(
             span,
@@ -393,6 +486,15 @@ impl<'a> Parser<'a> {
                 Ok(Type::Primitive(PrimitiveType::Usize))
             }
 
+            // floating point
+            TokenKind::F32 => {
+                self.advance();
+                Ok(Type::Primitive(PrimitiveType::F32))
+            }
+            TokenKind::F64 => {
+                Ok(Type::Primitive(PrimitiveType::F64))
+            }
+
             TokenKind::Bool => {
                 self.advance();
                 Ok(Type::Primitive(PrimitiveType::Bool))
@@ -428,7 +530,7 @@ impl<'a> Parser<'a> {
                 let ty = self.parse_type()?;
                 let size = if self.check(TokenKind::Semicolon) {
                     self.advance();
-                    let size = self.parse_size_array().clone();
+                    let size = self.parse_size_array();
                     let size = self.get_or_default(size, 0);
                     self.advance();
                     size
@@ -617,6 +719,41 @@ impl<'a> Parser<'a> {
                 span: span,
             })
         }
+    }
+
+    fn consume_owned(&mut self, kind: TokenKind, expected: &str) -> Result<usize, ParserError> {
+        if self.check(kind) {
+            Ok(self.advance_owned())
+        } else {
+            let span = self.get_last_span();
+            let token = self.peek().clone();
+            let span = span.merge(token.span);
+            // self.synchronize();
+            Err(ParserError::Expected {
+                expected: expected.to_string(),
+                found: format!("found '{}'", token.lexeme),
+                span: span,
+            })
+        }
+    }
+
+    fn advance_owned(&mut self) -> usize {
+        if !self.is_at_end() {
+            self.position += 1;
+        }
+        self.previous_owned()
+    }
+
+    fn previous_owned(&mut self) -> usize {
+        self.position - 1
+    }
+
+    fn dummy_token(&self) -> usize {
+        usize::MAX
+    }
+
+    fn get_token(&mut self, position: usize) -> &Token {
+        &self.tokens[position]
     }
 
     fn advance(&mut self) -> &Token {

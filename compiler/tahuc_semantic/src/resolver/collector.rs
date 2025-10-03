@@ -1,12 +1,19 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use tahuc_ast::{
-    nodes::declarations::{Declaration, DeclarationKind}, ty::Type, Module
+    nodes::declarations::{Declaration, DeclarationKind},
+    ty::Type,
 };
+use tahuc_module::resolver::ModuleResult;
 use tahuc_span::{FileId, Span};
 
 use crate::{
-    database::Database, error::SemanticError, symbol::{FunctionSymbol, ParameterInfo, StructFieldSymbol, StructSymbol, Symbol, SymbolKind, VariableSymbol}
+    database::Database,
+    error::SemanticError,
+    symbol::{
+        FunctionSymbol, ParameterInfo, StructFieldSymbol, StructSymbol, Symbol, SymbolKind,
+        VariableSymbol,
+    },
 };
 
 pub struct Collector<'a> {
@@ -24,11 +31,11 @@ impl<'a> Collector<'a> {
         }
     }
 
-    pub fn analyze_module(&mut self, modules: &Vec<Module>) {
-        for module in modules {
+    pub fn analyze_module(&mut self, modules: &HashMap<FileId, ModuleResult>) {
+        for (file_id, result) in modules {
             self.db.reset_scope();
-            self.file_id = module.file;
-            for declaration in &module.declaration {
+            self.file_id = *file_id;
+            for declaration in &result.module.declaration {
                 self.collect_declaration(declaration);
             }
         }
@@ -41,18 +48,12 @@ impl<'a> Collector<'a> {
             DeclarationKind::Struct(struct_decl) => {
                 for field in &struct_decl.fields {
                     if field.kind.r#type.is_named() {
-                        // if let Some(symbol) = self.lookup_symbol(field.kind.r#type.get_ty_named().unwrap()) {
-                        //     self.add_type(field.id, symbol.get_type());
-                        // } else {
-                        // }
-                        println!("struct pending {}", field.kind.name);
                         self.pendings.push_back(declaration.clone());
                         return;
                     } else {
                         self.add_type(field.id, field.kind.r#type.clone());
                     }
                 }
-                println!("struct is pending? {}", struct_decl.name);
                 let mut fields = Vec::new();
                 let mut fields_ty = Vec::new();
                 for field in &struct_decl.fields {
@@ -65,8 +66,10 @@ impl<'a> Collector<'a> {
                     fields_ty.push((field.kind.name.clone(), ty));
                 }
 
-                let final_ty = Type::Struct { name: struct_decl.name.clone(), fields: fields_ty };
-                println!("final {} - {}", struct_decl.name, final_ty);
+                let final_ty = Type::Struct {
+                    name: struct_decl.name.clone(),
+                    fields: fields_ty,
+                };
                 self.add_type(declaration.id, final_ty);
 
                 let result = self.add_symbol(Symbol {
@@ -81,20 +84,13 @@ impl<'a> Collector<'a> {
                         span: struct_decl.span,
                     }),
                 });
-                match result {
-                    Err(_) => {
-                        self.add_error(struct_decl.name.clone(), struct_decl.span);
-                    }
-                    Ok(_) => {}
+                if let Err(_) = result {
+                    self.add_error(struct_decl.name.clone(), struct_decl.span);
                 }
             }
             DeclarationKind::Fn(func) => {
                 for param in &func.kind.parameters {
                     if param.kind.r#type.is_named() {
-                        // if let Some(symbol) = self.lookup_symbol(param.kind.r#type.get_ty_named().unwrap()) {
-                        //     self.add_type(param.id, symbol.get_type());
-                        // } else {
-                        // }
                         self.pendings.push_back(declaration.clone());
                         return;
                     } else {
@@ -102,12 +98,6 @@ impl<'a> Collector<'a> {
                     }
                 }
                 if func.kind.return_type.is_named() {
-                    // if let Some(symbol) = self.lookup_symbol(func.kind.return_type.get_ty_named().unwrap()) {
-                    //     println!("resolve return ty {}", func.kind.return_type);
-                    //     println!("symbol found {} - {}", symbol.name, symbol.get_type());
-                    //     self.add_type(declaration.id, symbol.get_type());
-                    // } else {
-                    // }
                     self.pendings.push_back(declaration.clone());
                     return;
                 } else {
@@ -136,11 +126,8 @@ impl<'a> Collector<'a> {
                     }),
                 });
 
-                match result {
-                    Err(_) => {
-                        self.add_error(func.kind.name.clone(), func.span);
-                    }
-                    Ok(_) => {}
+                if let Err(_) = result {
+                    self.add_error(func.kind.name.clone(), func.span);
                 }
             }
             DeclarationKind::Extern(extern_func) => {
@@ -169,11 +156,8 @@ impl<'a> Collector<'a> {
                 };
                 let result = self.add_symbol(symbol);
 
-                match result {
-                    Err(_) => {
-                        self.add_error(extern_func.name.clone(), extern_func.span);
-                    }
-                    Ok(_) => {}
+                if let Err(_) = result {
+                    self.add_error(extern_func.name.clone(), extern_func.span);
                 }
             }
             DeclarationKind::Variable(var) => {
@@ -184,6 +168,7 @@ impl<'a> Collector<'a> {
                         name: var.name.clone(),
                         declared_type: var.variable_type.clone(),
                         initializer: None,
+                        is_mutable: true,
 
                         need_inferred: var.variable_type.is_inferred(),
                         inferred_type: None,
@@ -192,11 +177,8 @@ impl<'a> Collector<'a> {
                 };
 
                 let result = self.add_symbol(symbol);
-                match result {
-                    Err(_) => {
-                        self.add_error(var.name.clone(), var.span);
-                    }
-                    Ok(_) => {}
+                if let Err(_) = result {
+                    self.add_error(var.name.clone(), var.span);
                 }
             }
             _ => {}
@@ -218,21 +200,21 @@ impl<'a> Collector<'a> {
     fn resolve_declaration(&mut self, declaration: &Declaration) {
         match &declaration.kind {
             DeclarationKind::Struct(struct_decl) => {
-                println!("resolve struct {}", struct_decl.name);
                 let mut fields = Vec::new();
                 let mut final_ty = Vec::new();
 
                 struct_decl.fields.iter().for_each(|field| {
                     if field.kind.r#type.is_named() {
-                        if let Some(symbol) = self.lookup_symbol(field.kind.r#type.get_ty_named().unwrap()) {
+                        if let Some(symbol) =
+                            self.lookup_symbol(field.kind.r#type.get_ty_named().unwrap())
+                        {
                             fields.push(StructFieldSymbol {
                                 name: field.kind.name.clone(),
                                 r#type: symbol.get_type(),
-                                span: field.span
+                                span: field.span,
                             });
                             final_ty.push((field.kind.name.clone(), symbol.get_type()))
                         } else {
-                            println!("struct pending {}", field.kind.name);
                             self.pendings.push_back(declaration.clone());
                             return;
                         }
@@ -240,13 +222,17 @@ impl<'a> Collector<'a> {
                         fields.push(StructFieldSymbol {
                             name: field.kind.name.clone(),
                             r#type: field.kind.r#type.clone(),
-                            span: field.span
+                            span: field.span,
                         });
                         final_ty.push((field.kind.name.clone(), field.kind.r#type.clone()))
                     }
                 });
 
-                let ty = Type::Struct { name: struct_decl.name.clone(), fields: final_ty };
+                let ty = Type::Struct {
+                    name: struct_decl.name.clone(),
+                    fields: final_ty,
+                };
+                self.add_type(declaration.id, ty.clone());
 
                 let struct_symbol = StructSymbol {
                     file_id: self.file_id,
@@ -262,29 +248,26 @@ impl<'a> Collector<'a> {
                     span: struct_decl.span,
                     kind: SymbolKind::Struct(struct_symbol),
                 });
-                match result {
-                    Err(_) => {
-                        self.add_error(struct_decl.name.clone(), struct_decl.span);
-                    }
-                    Ok(_) => {}
+                if let Err(_) = result {
+                    self.add_error(struct_decl.name.clone(), struct_decl.span);
                 }
             }
             DeclarationKind::Fn(func) => {
-                println!("resolve func {}", func.kind.name);
                 let mut parameters = Vec::new();
                 let mut final_ty = Vec::new();
                 func.kind.parameters.iter().for_each(|param| {
                     if param.kind.r#type.is_named() {
-                        if let Some(symbol) = self.lookup_symbol(param.kind.r#type.get_ty_named().unwrap()) {
+                        if let Some(symbol) =
+                            self.lookup_symbol(param.kind.r#type.get_ty_named().unwrap())
+                        {
                             parameters.push(ParameterInfo {
                                 name: param.kind.name.clone(),
                                 var_type: symbol.get_type(),
-                                span: param.span
+                                span: param.span,
                             });
                             self.add_type(param.id, symbol.get_type());
                             final_ty.push((param.kind.name.clone(), symbol.get_type()))
                         } else {
-                            println!("pending {}", param.kind.name);
                             self.pendings.push_back(declaration.clone());
                             return;
                         }
@@ -292,7 +275,7 @@ impl<'a> Collector<'a> {
                         parameters.push(ParameterInfo {
                             name: param.kind.name.clone(),
                             var_type: param.kind.r#type.clone(),
-                            span: param.span
+                            span: param.span,
                         });
                         self.add_type(param.id, param.kind.r#type.clone());
                         final_ty.push((param.kind.name.clone(), param.kind.r#type.clone()))
@@ -300,18 +283,16 @@ impl<'a> Collector<'a> {
                 });
 
                 if func.kind.return_type.is_named() {
-                    // println!("resolve return ty {}", func.kind.return_type.get_ty_named().unwrap());
-                    if let Some(symbol) = self.lookup_symbol(func.kind.return_type.get_ty_named().unwrap()) {
-                        // println!("symbol found {} - {}", symbol.name, symbol.get_type());
+                    let ty = func.kind.return_type.get_ty_named().unwrap();
+                    if let Some(symbol) = self.lookup_symbol(ty) {
                         self.add_type(declaration.id, symbol.get_type());
                     } else {
-                        // println!("symbol not found {}", func.kind.return_type.get_ty_named().unwrap());
                         self.pendings.push_back(declaration.clone());
                         return;
                     }
-                } else {
-                    self.add_type(declaration.id, func.kind.return_type.clone());
                 }
+
+                self.add_type(declaration.id, func.kind.return_type.clone());
 
                 let ret_ty = self.get_type(declaration.id).unwrap().clone();
 
@@ -328,11 +309,8 @@ impl<'a> Collector<'a> {
                     }),
                 });
 
-                match result {
-                    Err(_) => {
-                        self.add_error(func.kind.name.clone(), func.span);
-                    }
-                    Ok(_) => {}
+                if let Err(_) = result {
+                    self.add_error(func.kind.name.clone(), func.span);
                 }
             }
             _ => {}
@@ -358,10 +336,6 @@ impl<'a> Collector<'a> {
     fn lookup_symbol(&mut self, name: String) -> Option<Symbol> {
         self.db.lookup_symbol(self.file_id, name)
     }
-
-    // fn lookup_symbol_files(&mut self, name: String) -> Option<Symbol> {
-    //     for file in self.fil
-    // }
 
     fn add_type(&mut self, id: u32, ty: Type) {
         self.db.add_type(self.file_id, id, ty);
