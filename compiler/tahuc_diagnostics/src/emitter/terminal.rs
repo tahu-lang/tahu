@@ -173,6 +173,6 @@ impl<W: Write> Emitter for TerminalEmitter<W> {
 }
 
 pub fn stderr_emitter() -> TerminalEmitter<io::Stderr> {
-    let use_colors = atty::is(atty::Stream::Stderr);
+    let use_colors = std::io::IsTerminal::is_terminal(&io::stderr());
     TerminalEmitter::new(io::stderr(), use_colors)
 }
