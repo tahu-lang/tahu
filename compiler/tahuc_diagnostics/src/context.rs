@@ -16,7 +16,7 @@ impl DiagnosticContext {
         }
     }
 
-    pub fn add_file(&mut self, path: String, content: String) -> FileId {
+    pub fn add_file(&mut self, path: String, content: &String) -> FileId {
         let file_id = FileId(self.next_file_id);
         self.next_file_id += 1;
         
