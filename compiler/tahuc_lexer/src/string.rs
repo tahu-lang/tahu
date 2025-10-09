@@ -1,5 +1,5 @@
 use tahuc_diagnostics::reporter::DiagnosticReporter;
-use tahuc_span::Span;
+use tahuc_span::{SourceFile, Span};
 
 use crate::{error::LexerError, token::{Literal, TemplatePart, Token, TokenKind}, Lexer};
 
@@ -59,26 +59,22 @@ impl<'a> Lexer<'a> {
             return Err(LexerError::UnterminatedString { span });
         }
 
-        let end_pos = self.position;
-        let span = Span::new(start_pos, end_pos, self.file_id);
-        let lexeme = content.clone();
-
         if has_interpolation {
             match self.parse_template_string(&content) {
-                Ok(parts) => Ok(Token::new(
-                    TokenKind::TemplateString { parts },
-                    span,
-                    self.file_id,
-                    lexeme,
-                )),
+                Ok(parts) => {
+                    Ok(self.make_token(
+                        TokenKind::TemplateString { parts },
+                        start_pos,
+                        &content,
+                    ))
+                }
                 Err(err) => Err(err),
             }
         } else {
-            Ok(Token::new(
-                TokenKind::Literal(Literal::String(content)),
-                span,
-                self.file_id,
-                lexeme,
+            Ok(self.make_token(
+                TokenKind::Literal(Literal::String(content.clone())),
+                start_pos,
+                &content,
             ))
         }
     }
@@ -196,14 +192,10 @@ impl<'a> Lexer<'a> {
 
         self.advance(); // skip closing '
 
-        let end_pos = self.position;
-        let span = Span::new(start_pos, end_pos, self.file_id);
-
-        Ok(Token::new(
+        Ok(self.make_token(
             TokenKind::Literal(Literal::Char(ch)),
-            span,
-            self.file_id,
-            ch.to_string(),
+            start_pos,
+            ch.to_string().as_str(),
         ))
     }
     
@@ -240,7 +232,9 @@ impl<'a> Lexer<'a> {
     fn tokenize_template_expression(&mut self, expr: &str) -> Result<Vec<Token>, LexerError> {
         let mut temp_reporter = DiagnosticReporter::new();
         let binding = expr.trim().to_string();
-        let mut sub_lexer = Lexer::new(&binding, self.file_id, &mut temp_reporter);
+        let mut str_pool = self.str_pool.clone();
+        let source = SourceFile::new(self.file_id, self.source.path.clone(), &binding);
+        let mut sub_lexer = Lexer::new(&mut str_pool, &source, self.file_id, &mut temp_reporter);
         let result = sub_lexer.tokenize();
         
         if temp_reporter.has_errors() {

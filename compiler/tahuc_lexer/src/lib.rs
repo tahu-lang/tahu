@@ -1,5 +1,5 @@
 use tahuc_diagnostics::reporter::DiagnosticReporter;
-use tahuc_span::{FileId, Position, Span};
+use tahuc_span::{FileId, Position, SourceFile, Span, StrPool};
 
 use crate::{
     error::LexerError,
@@ -13,6 +13,8 @@ pub mod token;
 
 #[derive(Debug)]
 pub struct Lexer<'a> {
+    str_pool: &'a mut StrPool,
+    pub(crate) source: &'a SourceFile,
     chars: Vec<char>,
     current_char: Option<char>,
     position: Position,
@@ -27,9 +29,11 @@ pub struct LexerResult {
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(input: &'a String, file_id: FileId, reporter: &'a mut DiagnosticReporter) -> Self {
+    pub fn new(str_pool: &'a mut StrPool, source: &'a SourceFile, file_id: FileId, reporter: &'a mut DiagnosticReporter) -> Self {
         let mut lexer = Self {
-            chars: input.chars().collect(),
+            str_pool,
+            source,
+            chars: source.content.chars().collect(),
             current_char: None,
             position: Position::new(1, 1, 0),
             file_id,
@@ -351,10 +355,11 @@ impl<'a> Lexer<'a> {
         Ok(self.make_token(token, start_pos, &lexeme.to_string()))
     }
 
-    fn make_token(&self, kind: TokenKind, start_pos: Position, lexeme: &str) -> Token {
+    fn make_token(&mut self, kind: TokenKind, start_pos: Position, lexeme: &str) -> Token {
         let end_pos = self.position;
         let span = Span::new(start_pos, end_pos, self.file_id);
-        Token::new(kind, span, self.file_id, lexeme.to_string())
+        // let input = self.source.span_content(span);
+        Token::new(kind, span, self.file_id, self.str_pool.pool(lexeme))
     }
 
     fn skip_whitespace(&mut self) {
