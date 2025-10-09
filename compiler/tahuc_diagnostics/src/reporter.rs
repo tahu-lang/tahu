@@ -26,7 +26,8 @@ impl DiagnosticReporter {
             return;
         }
         match diagnostic.severity {
-            Severity::Error | Severity::Fatal => self.error_count += 1,
+            Severity::Fatal => self.error_count += 1,
+            Severity::Error => self.error_count += 1,
             Severity::Warning => self.warning_count += 1,
             Severity::Info => self.info_count += 1,
             _ => {}
