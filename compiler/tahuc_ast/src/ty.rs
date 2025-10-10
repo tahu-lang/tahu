@@ -112,6 +112,20 @@ impl Type {
             _ => false,
         }
     }
+
+    pub fn is_array(&self) -> bool {
+        match self {
+            Type::Array { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_unit(&self) -> bool {
+        match self {
+            Type::Primitive(PrimitiveType::Unit) => true,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Type {
