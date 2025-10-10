@@ -1,0 +1,9 @@
+struct Ret {
+    name: string,
+    age: int
+    return: string,
+}
+
+fn main() {
+    var ret = Ret { return: "" };
+}

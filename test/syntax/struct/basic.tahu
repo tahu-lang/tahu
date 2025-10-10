@@ -1,0 +1,15 @@
+struct Person {
+    name: string,
+    age: i8,
+}
+
+fn main() {
+    val person = Person { name: "eko", age: 25 };
+}
+
+fn short_hand() {
+    var name = "eko";
+    var age: i8 = 25;
+
+    var person = Person { name, age };
+}

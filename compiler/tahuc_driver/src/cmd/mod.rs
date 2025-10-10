@@ -10,6 +10,7 @@ use std::{collections::{HashSet, VecDeque}, fs, path::PathBuf, process::exit};
 
 use help::HelpCommand;
 use tahuc_module::config::{Config, FileInput};
+use tahuc_span::StrPool;
 use version::VersionCommand;
 
 use crate::cmd::{output_name::OutputName, test::Test};
@@ -181,7 +182,7 @@ impl<'a> Cli<'a> {
     }
 }
 
-pub fn parse_command() -> Config {
+fn init_config<'a>(pool: &'a mut StrPool) -> Config<'a> {
     // get location compiler
     let compiler_path = std::env::current_exe()
         .expect("Failed to get current executable path");
@@ -189,12 +190,12 @@ pub fn parse_command() -> Config {
         .expect("Failed to get compiler directory")
         .to_path_buf();
 
-    let mut config = Config::new();
+    let mut config = Config::new(pool);
     config.compiler_dir = compiler_dir;
-    
-    let mut args = std::env::args().collect::<VecDeque<String>>();
-    let mut cli = Cli::new();
+    config
+}
 
+fn register_cli(cli: &mut Cli) {
     cli.add_command(Box::new(opt::Opt));
     cli.add_command(Box::new(OutputName));
     cli.add_command(Box::new(include::Include));
@@ -203,7 +204,15 @@ pub fn parse_command() -> Config {
     cli.add_command(Box::new(Test));
     cli.add_command(Box::new(VersionCommand));
     cli.add_command(Box::new(HelpCommand));
+}
 
+pub fn parse_command<'a>(pool: &'a mut StrPool) -> Config<'a> {
+    let mut config = init_config(pool);
+    let mut cli = Cli::new();
+
+    register_cli(&mut cli);
+
+    let mut args = std::env::args().collect::<VecDeque<String>>();
     args.pop_front();
     if let Err(err) = cli.run(args, &mut config) {
         eprintln!("Error: {}", err);

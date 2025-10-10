@@ -1,4 +1,7 @@
 use core::fmt;
+use std::rc::Rc;
+
+use tahuc_span::StrId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PrimitiveType {
@@ -24,20 +27,20 @@ pub enum Type {
     Null,   // literal null depends on context
 
     Array {
-        ty: Box<Type>,
+        ty: Rc<Type>,
         size: usize
     },
     Struct {
-        name: String,
-        fields: Vec<(String, Type)>,
+        name: StrId,
+        fields: Rc<Vec<(StrId, Rc<Type>)>>,
     },
-    Nullable(Box<Type>),
-    Pointer(Box<Type>),
+    Nullable(Rc<Type>),
+    Pointer(Rc<Type>),
     
-    Function(Vec<Type>, Box<Type>),
+    Function(Rc<Vec<Type>>, Rc<Type>),
     
     // for custom type
-    Named(String),
+    Named(StrId),
     
     // placeholder
     Inferred,
@@ -96,9 +99,9 @@ impl Type {
         }
     }
 
-    pub fn get_ty_named(&self) -> Option<String> {
+    pub fn get_ty_named(&self) -> Option<StrId> {
         match self {
-            Type::Named(name) => Some(name.clone()),
+            Type::Named(name) => Some(*name),
             _ => None
         }
     }
@@ -106,6 +109,20 @@ impl Type {
     pub fn is_struct(&self) -> bool {
         match self {
             Type::Struct { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_array(&self) -> bool {
+        match self {
+            Type::Array { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_unit(&self) -> bool {
+        match self {
+            Type::Primitive(PrimitiveType::Unit) => true,
             _ => false,
         }
     }
@@ -123,7 +140,7 @@ impl fmt::Display for Type {
             Type::Array { ty, size } => write!(f, "[{} x {}]", size, ty),
             Type::Struct { name, fields } => {
                 write!(f, "struct {} {{", name)?;
-                for (name, ty) in fields {
+                for (name, ty) in fields.iter() {
                     write!(f, "{}: {}, ", name, ty)?;
                 }
                 write!(f, "}}")

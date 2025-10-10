@@ -1,0 +1,20 @@
+struct Person {
+    name: string,
+    age: int,
+}
+
+fn age() {
+    return 25;
+}
+
+fn main() {
+    val person = Person { name: "eko", age() };
+}
+
+fn short_hand() {
+    var name = "eko";
+    var ag = age();
+
+    // field name not same with struct field
+    var person = Person { name, ag };
+}

@@ -1,4 +1,6 @@
-use tahuc_span::Span;
+use std::rc::Rc;
+
+use tahuc_span::{Span, StrId};
 
 use crate::{nodes::{ast::AstNode, declarations::Visibility, op::AssignmentOp, Expression}, Type};
 
@@ -31,8 +33,8 @@ pub struct Block {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Variable {
     pub visibility: Visibility,
-    pub name: String,
-    pub variable_type: Type,
+    pub name: StrId,
+    pub variable_type: Rc<Type>,
     pub initializer: Option<Expression>,
     pub is_mutable: bool,
     pub span: Span,

@@ -1,0 +1,9 @@
+pub struct User {
+    name: string,
+    age: i8,
+}
+
+struct Person {
+    name: string,
+    age: i8,
+}

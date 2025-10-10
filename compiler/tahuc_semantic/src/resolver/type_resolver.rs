@@ -1,29 +1,33 @@
+use std::rc::Rc;
+
 use tahuc_ast::{
     nodes::{
         ast::NodeId, declarations::{Declaration, DeclarationKind}, expressions::ExpressionKind, op::{BinaryOp, UnaryOp}, statements::{Block, ElseBranch, IfStatement, Statement, StatementKind}, Expression
     }, ty::{PrimitiveType, Type}, Module
 };
 use tahuc_lexer::token::Literal;
-use tahuc_span::{FileId, Span};
+use tahuc_module::config::Config;
+use tahuc_span::{FileId, Span, StrId};
 
 use crate::{
-    database::Database,
+    database::{database::Database, symbol::{FunctionSymbol, Symbol, SymbolKind, VariableSymbol}},
     error::SemanticError,
-    symbol::{Symbol, SymbolKind, VariableSymbol},
 };
 
 pub struct TypeAnalyzer<'a> {
+    config: &'a Config<'a>,
     db: &'a mut Database,
     file_id: FileId,
-    current_function_return_type: Type,
+    current_function_return_type: Rc<Type>,
 }
 
 impl<'a> TypeAnalyzer<'a> {
-    pub fn new(db: &'a mut Database) -> Self {
+    pub fn new(config: &'a Config, db: &'a mut Database) -> Self {
         Self {
+            config,
             db,
             file_id: FileId(0),
-            current_function_return_type: Type::Inferred,
+            current_function_return_type: Rc::new(Type::Inferred),
         }
     }
 
@@ -39,62 +43,27 @@ impl<'a> TypeAnalyzer<'a> {
     fn resolve_declaration(&mut self, declaration: &Declaration) {
         match &declaration.kind {
             DeclarationKind::Fn(func) => {
-                if let Some(_) = self.lookup_symbol(func.kind.name.clone()) {
+                if let Some(_) = self.lookup_function(func.kind.name) {
                     let ret_ty = self.get_type(declaration.id).unwrap().clone();
                     self.current_function_return_type = ret_ty;
 
                     self.db.enter_scope();
 
-                    for p in func.kind.parameters.iter() {
-                        let ty = self.get_type(p.id).unwrap().clone();
-                        if let Err(_) = self.add_symbol(Symbol {
-                            name: p.kind.name.clone(),
-                            span: p.span,
-                            kind: SymbolKind::Variable(VariableSymbol {
-                                name: p.kind.name.clone(),
-                                declared_type: ty.clone(),
-                                initializer: None,
-                                is_mutable: true,
-
-                                need_inferred: false,
-                                inferred_type: None,
-                                final_type: ty.clone(),
-                            }),
-                        }) {
-                            let _ = self
-                                .add_symbol(Symbol {
-                                    name: p.kind.name.clone(),
-                                    span: p.span,
-                                    kind: SymbolKind::Variable(VariableSymbol {
-                                        name: p.kind.name.clone(),
-                                        declared_type: Type::Error,
-                                        initializer: None,
-                                        is_mutable: true,
-
-                                        need_inferred: false,
-                                        inferred_type: None,
-                                        final_type: Type::Error,
-                                    }),
-                                })
-                                .ok();
-                        }
-                    }
-
                     self.resolve_block(&func.kind.body);
 
                     self.db.exit_scope();
                 }
-                self.current_function_return_type = Type::Inferred;
+                self.current_function_return_type = Rc::new(Type::Inferred);
             }
             DeclarationKind::Variable(var) => {
                 // placeholder
-                if let Some(symbol_var) = self.lookup_symbol(var.name.clone()) {
+                if let Some(_) = self.lookup_variable(var.name) {
                     if let Some(initializer) = &var.initializer {
                         self.resolve_expression(initializer, Some(var.variable_type.clone()));
                     } else {
-                        if let Some(_) = symbol_var.get_variable() {
+                        // if let Some(_) = symbol_var.get_variable() {
                             // variable.
-                        }
+                        // }
                     }
                 }
             }
@@ -111,6 +80,15 @@ impl<'a> TypeAnalyzer<'a> {
                 if let Some(initializer) = &var.initializer {
                     let result = self.resolve_expression(initializer, Some(var.variable_type.clone()));
 
+                    if result.is_named() {
+                        let name = result.get_ty_named().unwrap();
+                        if let Ok((_, ty)) = self.lookup_type(name, initializer.span) {
+                            self.add_type(statement.id, ty);
+                        }
+                    } else {
+                        self.add_type(statement.id, result.clone());
+                    }
+
                     let Some(_) = self.get_symbol(statement.id) else {
                         return;
                     };
@@ -121,12 +99,10 @@ impl<'a> TypeAnalyzer<'a> {
                         });
                     });
 
-                    self.add_type(statement.id, result.clone());
-
                     if var.variable_type.is_named() {
-                        match &result {
+                        match *result {
                             Type::Struct { name, .. } => {
-                                if *name != var.variable_type.get_ty_named().unwrap() {
+                                if name != var.variable_type.get_ty_named().unwrap() {
                                     self.db.report_error(SemanticError::TypeMismatch {
                                         msg: format!("Variable type mismatch"),
                                         expected: var.variable_type.to_string(),
@@ -141,7 +117,7 @@ impl<'a> TypeAnalyzer<'a> {
                         return;
                     }
 
-                    if var.variable_type != Type::Inferred && var.variable_type != result {
+                    if *var.variable_type != Type::Inferred && var.variable_type != result {
                         self.db.report_error(SemanticError::TypeMismatch {
                             msg: format!("Variable type mismatch"),
                             expected: var.variable_type.to_string(),
@@ -150,13 +126,51 @@ impl<'a> TypeAnalyzer<'a> {
                         });
                     }
                 } else {
-                    self.add_type(statement.id, var.variable_type.clone());
+                    if var.variable_type.is_inferred() {
+                        let name = self.config.str_pool.get(var.name);
+                        self.db.report_error(SemanticError::UninitializedVariable {
+                            name: name.to_string(),
+                            span: var.span,
+                        });
+                    }
+
+                    if var.variable_type.is_named() {
+                        let name = var.variable_type.get_ty_named().unwrap();
+                        if let Ok((_, ty)) = self.lookup_type(name, var.span) {
+                            self.add_type(statement.id, ty);
+                        }
+                    } else {
+                        self.add_type(statement.id, var.variable_type.clone());
+                    }
                 }
             }
             StatementKind::Assignment { left, right, .. } => {
                 if self.can_assign_left_value(&left) {
                     let left_ty = self.resolve_expression(&left, None);
                     let right_ty = self.resolve_expression(&right, Some(left_ty.clone()));
+
+                    let left_ty = if left_ty.is_named() {
+                        let name = left_ty.get_ty_named().unwrap();
+                        if let Ok((_, ty)) = self.lookup_type(name, left.span) {
+                            ty
+                        } else {
+                            left_ty
+                        }
+                    } else {
+                        left_ty
+                    };
+
+                    let right_ty = if right_ty.is_named() {
+                        let name = right_ty.get_ty_named().unwrap();
+                        if let Ok((_, ty)) = self.lookup_type(name, right.span) {
+                            ty
+                        } else {
+                            right_ty
+                        }
+                    } else {
+                        right_ty
+                    };
+
     
                     if !self.is_assignable_type(&left_ty, &right_ty) {
                         self.db.report_error(SemanticError::TypeMismatch {
@@ -175,7 +189,7 @@ impl<'a> TypeAnalyzer<'a> {
                     self.debug(format!("resolve return type {:?}", return_type));
                     let result = self.resolve_expression(return_type, Some(self.current_function_return_type.clone()));
 
-                    if result == Type::Error {
+                    if *result == Type::Error {
                         return;
                     }
 
@@ -243,16 +257,20 @@ impl<'a> TypeAnalyzer<'a> {
                 if let Some(symbol) = self.get_symbol(expression.id) {
                     if let SymbolKind::Variable(var) = &symbol.kind {
                         if !var.is_mutable {
+                            let ident = self.config.str_pool.get(*ident);
                             self.db.report_error(SemanticError::CannotAssignImmutable {
-                                name: ident.clone(),
+                                name: ident.to_string(),
                                 span: expression.span,
                             });
-                            return false;
+                            return false
                         }
+                        true
+                    } else {
+                        true
                     }
+                } else {
+                    false
                 }
-
-                true
             }
             ExpressionKind::ArrayAccess { array, .. } => {
                 self.can_assign_left_value(array)
@@ -272,58 +290,62 @@ impl<'a> TypeAnalyzer<'a> {
         }
     }
 
-    fn resolve_expression(&mut self, expression: &Expression, expected: Option<Type>) -> Type {
+    fn resolve_expression(&mut self, expression: &Expression, expected: Option<Rc<Type>>) -> Rc<Type> {
         match &expression.kind {
             ExpressionKind::Literal(literal) => {
                 let result = match literal {
-                    Literal::String(_) => Type::String,
-                    Literal::Char(_) => Type::Primitive(PrimitiveType::Char),
+                    Literal::String(_) => Rc::new(Type::String),
+                    Literal::Char(_) => Rc::new(Type::Primitive(PrimitiveType::Char)),
                     Literal::Integer(_) => {
                         if let Some(expected) = expected {
                             if expected.is_integer() {
                                 expected
                             } else if expected.is_inferred() {
-                                Type::Int
+                                Rc::new(Type::Int)
                             } else {
-                                Type::Error
+                                Rc::new(Type::Int)
                             }
                         } else {
-                            Type::Int
+                            Rc::new(Type::Int)
                         }
                     },
-                    Literal::Bool(_) => Type::Primitive(PrimitiveType::Bool),
+                    Literal::Bool(_) => Rc::new(Type::Primitive(PrimitiveType::Bool)),
                     Literal::Double(_) => {
                         if let Some(expected) = expected {
                             if expected.is_float() {
                                 expected
                             } else if expected.is_inferred() {
-                                Type::Double
+                                Rc::new(Type::Double)
                             } else {
-                                Type::Error
+                                Rc::new(Type::Double)
                             }
                         } else {
-                            Type::Double
+                            Rc::new(Type::Double)
                         }
                     },
                     Literal::Null => {
                         match expected {
-                            Some(Type::Nullable(inner)) => {
-                                Type::Nullable(inner.clone())
-                            },
-                            //  Type::Nullable(inner.clone()),
-                            Some(Type::Pointer(inner))  => Type::Pointer(inner.clone()),
                             Some(ty) => {
-                                self.db.report_error(SemanticError::TypeMismatch {
-                                    msg: "Cannot infer type of null literal".to_string(),
-                                    expected: ty.to_string(),
-                                    found: "null".to_string(),
-                                    span: expression.span,
-                                });
-                                Type::Error
+                                match &*ty {
+                                    Type::Nullable(inner) => {
+                                        inner.clone()
+                                    }
+                                    Type::Pointer(inner) => {
+                                        inner.clone()
+                                    }
+                                    _ => {
+                                        self.db.report_error(SemanticError::TypeMismatch {
+                                            msg: "Cannot infer type of null literal".to_string(),
+                                            expected: ty.to_string(),
+                                            found: "null".to_string(),
+                                            span: expression.span,
+                                        });
+                                        Rc::new(Type::Error)
+                                    }
+                                }
                             }
                             None => {
-                                println!("Cannot infer type of null literal {:?} and expected {:?}", literal, expected);
-                                Type::Null
+                                Rc::new(Type::Null)
                             },
                         }
                     }
@@ -335,7 +357,7 @@ impl<'a> TypeAnalyzer<'a> {
                 result
             }
             ExpressionKind::TemplateString { .. } => {
-                let result = Type::String;
+                let result = Rc::new(Type::String);
                 self.add_type(expression.id, result.clone());
                 result
             }
@@ -343,13 +365,13 @@ impl<'a> TypeAnalyzer<'a> {
                 self.read_variable(expression.id)
             }
             ExpressionKind::Ternary { condition, then, otherwise } => {
-                let cond = self.resolve_expression(&condition, Some(Type::Primitive(PrimitiveType::Bool)));
-                if cond != Type::Primitive(PrimitiveType::Bool) {
+                let cond = self.resolve_expression(&condition, Some(Rc::new(Type::Primitive(PrimitiveType::Bool))));
+                if *cond != Type::Primitive(PrimitiveType::Bool) {
                     self.db.report_error(SemanticError::Raw {
                         message: "Ternary condition must be boolean".to_string(),
                         span: condition.span,
                     });
-                    return Type::Error;
+                    return Rc::new(Type::Error);
                 }
 
                 let then_ty = self.resolve_expression(&then, None);
@@ -361,7 +383,7 @@ impl<'a> TypeAnalyzer<'a> {
                         found: otherwise_ty.to_string(),
                         span: expression.span,
                     });
-                    return Type::Error;
+                    return Rc::new(Type::Error);
                 }
 
                 self.add_type(expression.id, then_ty.clone());
@@ -373,22 +395,23 @@ impl<'a> TypeAnalyzer<'a> {
                 let left_type = self.resolve_expression(&left, r_ty);
                 let right_type = self.resolve_expression(&right, l_ty);
 
-                if left_type == Type::Error || right_type == Type::Error {
-                    self.add_type(expression.id, Type::Error);
-                    return Type::Error;
+                if *left_type == Type::Error || *right_type == Type::Error {
+                    self.add_type(expression.id, Rc::new(Type::Error));
+                    return Rc::new(Type::Error);
                 }
 
                 let result = self.infer_binary_operation_type(&left_type, &right_type, op);
 
                 match result {
                     Ok(ty) => {
+                        let ty = Rc::new(ty);
                         self.add_type(expression.id, ty.clone());
                         return ty;
                     }
                     Err(err) => {
-                        self.add_type(expression.id, Type::Error);
+                        self.add_type(expression.id, Rc::new(Type::Error));
                         self.db.report_error(SemanticError::Raw { message: err, span: left.span.merge(right.span) });
-                        return Type::Error;
+                        return Rc::new(Type::Error);
                     }
                 };
             }
@@ -397,35 +420,34 @@ impl<'a> TypeAnalyzer<'a> {
 
                 let result = match op {
                     UnaryOp::AddressOf => {
-                        if operand_type == Type::Error {
-                            self.add_type(expression.id, Type::Error);
-                            return Type::Error;
+                        if *operand_type == Type::Error {
+                            self.add_type(expression.id, Rc::new(Type::Error));
+                            return Rc::new(Type::Error);
                         }
-                        Type::Pointer(Box::new(operand_type))
+                        Rc::new(Type::Pointer(operand_type))
                     }
                     UnaryOp::Deref => {
-                        if let Type::Pointer(inner) = operand_type {
-                            let result = *inner;
-                            result
+                        if let Type::Pointer(inner) = &*operand_type {
+                            inner.clone()
                         } else {
                             self.db.report_error(SemanticError::InvalidPointerOp {
                                 op: op.clone(),
-                                operand_type: operand_type,
+                                operand_type: operand_type.clone(),
                                 span: operand.span,
                                 reason: "Cannot dereference non-pointer type".to_string(),
                             });
-                            self.add_type(expression.id, Type::Error);
-                            Type::Error
+                            self.add_type(expression.id, Rc::new(Type::Error));
+                            Rc::new(Type::Error)
                         }
                     }
                     _ => {
-                        if operand_type == Type::Error {
+                        if *operand_type == Type::Error {
                             self.db.report_error(SemanticError::InvalidUnaryOp {
                                 op: op.clone(),
                                 span: operand.span,
                                 reason: "Operand resolved to Error type".to_string(),
                             });
-                            return Type::Error;
+                            return Rc::new(Type::Error);
                         }
 
                         operand_type
@@ -436,28 +458,13 @@ impl<'a> TypeAnalyzer<'a> {
                 result
             }
             ExpressionKind::FunctionCall(func) => {
-                // let Ok(function) = self.resolve_function(&func.function) else {
-                //     self.db.report_error(SemanticError::Raw {
-                //         message: "Function not found".to_string(),
-                //         span: func.function.span,
-                //     });
-                //     return Type::Error;
-                // };
-                // let Some(symbol) = self.lookup_symbol(function.clone()) else {
-                //     self.db.report_error(SemanticError::Undefined {
-                //         name: function,
-                //         span: func.function.span,
-                //     });
-    
-                //     return Type::Error
-                // };
-
                 let Some(symbol) = self.get_symbol(func.function.id).cloned() else {
-                    return Type::Error;
+                    println!("Function not found {:?}", func.function);
+                    return Rc::new(Type::Error);
                 };
 
                 let Some(signature) = symbol.get_function() else {
-                    return Type::Error;
+                    return Rc::new(Type::Error);
                 };
 
                 for (i, arg) in func.arguments.iter().enumerate() {
@@ -469,7 +476,14 @@ impl<'a> TypeAnalyzer<'a> {
                     self.resolve_expression(arg_expr, Some(param_ty));
                 }
 
-                let return_type = self.resolve_expression(&func.function, None);
+                let mut return_type = self.resolve_expression(&func.function, None);
+
+                if return_type.is_named() {
+                    let name = return_type.get_ty_named().unwrap();
+                    if let Ok((_, ty)) = self.lookup_type(name, func.function.span) {
+                        return_type = ty;
+                    }
+                }
 
                 self.add_type(expression.id, return_type.clone());
 
@@ -490,12 +504,17 @@ impl<'a> TypeAnalyzer<'a> {
                             message: "Cannot infer type of array".to_string(),
                             span: expression.span,
                         });
-                        return Type::Error;
+                        return Rc::new(Type::Error);
                     }
                 }
 
                 let element_expected = match expected {
-                    Some(Type::Array { ty, .. }) => Some(*ty),
+                    Some(ty) => {
+                        match &*ty {
+                            Type::Array { ty, .. } => Some(ty.clone()),
+                            _ => None,
+                        }
+                    }
                     _ => None,
                 };
 
@@ -510,11 +529,11 @@ impl<'a> TypeAnalyzer<'a> {
                             found: elem_ty.to_string(),
                             span: element.span
                         });
-                        return Type::Error;
+                        return Rc::new(Type::Error);
                     }
                 }
 
-                let result = Type::Array { ty: Box::new(first_ty), size: elements.len() };
+                let result = Rc::new(Type::Array { ty: first_ty, size: elements.len() });
                 self.add_type(expression.id, result.clone());
                 result
             }
@@ -522,21 +541,21 @@ impl<'a> TypeAnalyzer<'a> {
                 let arr_ty = self.resolve_expression(&array, None);
                 let idx_ty = self.resolve_expression(&index, None);
 
-                if idx_ty != Type::Int {
+                if *idx_ty != Type::Int {
                     self.db.report_error(SemanticError::Raw {
                         message: format!("Array index must be Int, Found {:?}", idx_ty),
                         span: index.span,
                     });
                 }
 
-                let elem_type = match arr_ty {
-                    Type::Array { ty, .. } => *ty,
-                    Type::String => Type::Primitive(PrimitiveType::Char),
-                    Type::Pointer(inner) => *inner,
+                let elem_type = match &*arr_ty {
+                    Type::Array { ty, .. } => ty.clone(),
+                    Type::String => Rc::new(Type::Primitive(PrimitiveType::Char)),
+                    Type::Pointer(inner) => inner.clone(),
                     _ => {
                         println!("Error: trying to index non-array {}", arr_ty);
                         // error: trying to index non-array
-                        Type::Error
+                        Rc::new(Type::Error)
                     }
                 };
                 
@@ -547,9 +566,9 @@ impl<'a> TypeAnalyzer<'a> {
             ExpressionKind::MemberAccess { object, member } => {
                 let obj_ty = self.resolve_expression(&object, None);
 
-                match &obj_ty {
+                match &*obj_ty {
                     Type::Struct { fields, .. } => {
-                        for (name, ty) in fields {
+                        for (name, ty) in &**fields {
                             if name == member {
                                 self.add_type(expression.id, ty.clone());
                                 return ty.clone();
@@ -569,8 +588,9 @@ impl<'a> TypeAnalyzer<'a> {
                         message: format!("Cannot cast {:?} to {:?}", expr_ty, ty),
                         span: expression.span,
                     });
-                    return Type::Error;
+                    return Rc::new(Type::Error);
                 }
+
                 self.add_type(expression.id, ty.clone());
                 ty.clone()
             }
@@ -578,14 +598,14 @@ impl<'a> TypeAnalyzer<'a> {
                 let struct_ty = self.resolve_expression(&object, None);
                 self.debug(format!("resolving struct literal {}", struct_ty));
 
-                match &struct_ty {
+                match &*struct_ty {
                     Type::Struct { name, fields: fields_ty } => {
                         if fields.len() != fields_ty.len() {
                             self.db.report_error(SemanticError::Raw {
                                 message: format!("Expected {} fields, found {}", fields_ty.len(), fields.len()),
                                 span: expression.span,
                             });
-                            return Type::Error;
+                            return Rc::new(Type::Error);
                         }
 
                         for (idx, field_expr) in fields.iter().enumerate() {
@@ -610,7 +630,7 @@ impl<'a> TypeAnalyzer<'a> {
                                 },
                                 None => {
                                     self.debug(format!("Resolving struct field '{}' with default value", field_name));
-                                    let value = self.read_variable(field_expr.id);
+                                    let value = self.read_variable(field_expr.kind.name.id);
                                     value
                                 }
                             };
@@ -618,21 +638,23 @@ impl<'a> TypeAnalyzer<'a> {
                             self.add_type(field_expr.id, ty.clone());
 
                             if idx >= fields_ty.len() || &fields_ty[idx].0 != field_name {
+                                let field_struct = self.config.str_pool.get(fields_ty[idx].0);
+                                let field_name = self.config.str_pool.get(*field_name);
                                 self.db.report_error(SemanticError::Raw {
-                                    message: format!("Unexpected field name '{}'", field_name),
+                                    message: format!("Expected field name '{}', found '{}'", field_struct, field_name),
                                     span: field_expr.span,
                                 });
                                 continue;
                             }
 
-                            self.infer_struct_literal(&fields_ty[idx].1, ty, name, field_expr.span);
+                            self.infer_struct_literal(&fields_ty[idx].1, ty, &name, field_expr.span);
                         }
 
                         self.add_type(expression.id, struct_ty.clone());
                     }
                     _ => {
                         self.db.report_error(SemanticError::Raw {
-                            message: "Cannot instantiate non-struct type".to_string(),
+                            message: format!("Expected struct type, found {:?}", struct_ty),
                             span: expression.span, 
                         });
                     }
@@ -641,18 +663,10 @@ impl<'a> TypeAnalyzer<'a> {
 
                 struct_ty
             }
-            // _ => {
-            //     self.db.report_error(SemanticError::Raw {
-            //         message: "Not supported expression".to_string(),
-            //         span: expression.span, 
-            //     });
-            //     self.add_type(expression.id, Type::Error);
-            //     Type::Error
-            // }
         }
     }
 
-    fn read_variable(&mut self, id: NodeId) -> Type {
+    fn read_variable(&mut self, id: NodeId) -> Rc<Type> {
         if let Some(symbol) = self.get_symbol(id) {
             self.debug(format!("symbol `{}` found", id));
             let ty = symbol.get_type();
@@ -661,24 +675,12 @@ impl<'a> TypeAnalyzer<'a> {
         }
 
         self.debug(format!("symbol `{}` not found", id));
-        self.add_type(id, Type::Error);
-        Type::Error
+        self.add_type(id, Rc::new(Type::Error));
+        Rc::new(Type::Error)
     }
 
-    fn infer_struct_literal(&mut self, field_ty: &Type, result_ty: Type, _struct_name: &String, span: Span) {
-        if field_ty.is_named() {
-            if field_ty.get_ty_named().unwrap() != result_ty.to_string() {}
-            if field_ty.get_ty_named().unwrap() != result_ty.to_string() {
-                self.db.report_error(SemanticError::TypeMismatch {
-                    msg: "Struct literal field type mismatch".to_string(),
-                    expected: field_ty.to_string(),
-                    found: result_ty.to_string(),
-                    span: span,
-                });
-            }
-        }
-
-        if *field_ty != result_ty {
+    fn infer_struct_literal(&mut self, field_ty: &Type, result_ty: Rc<Type>, _struct_name: &StrId, span: Span) {
+        if *field_ty != *result_ty {
             self.db.report_error(SemanticError::TypeMismatch {
                 msg: "Struct literal field type mismatch".to_string(),
                 expected: field_ty.to_string(),
@@ -709,7 +711,7 @@ impl<'a> TypeAnalyzer<'a> {
                     (Type::Int, Type::Double) | (Type::Double, Type::Int) => Ok(Type::Double),
                     // (Type::String, _) | (_, Type::String) if operator == "+" => Ok(Type::String),
                     // (Type::String, _) | (_, Type::String) if operator == &BinaryOp::Add => Ok(Type::String),
-                    (Type::Pointer(_), Type::Int) => Ok(Type::Pointer(Box::new(Type::Int))),
+                    (Type::Pointer(_), Type::Int) => Ok(Type::Pointer(Rc::new(Type::Int))),
                     _ => Err(format!(
                         "Cannot apply operator '{:?}' to {:?} and {:?}",
                         operator, left, right
@@ -809,19 +811,19 @@ impl<'a> TypeAnalyzer<'a> {
         }
     }
 
-    fn add_symbol(&mut self, symbol: Symbol) -> Result<(), String> {
-        self.db.add_symbol(self.file_id, symbol)
+    fn lookup_function(&mut self, name: StrId) -> Option<&FunctionSymbol> {
+        self.db.lookup_fn(self.file_id, name)
     }
 
-    fn lookup_symbol(&mut self, name: String) -> Option<Symbol> {
-        self.db.lookup_symbol(self.file_id, name)
+    fn lookup_variable(&mut self, name: StrId) -> Option<&VariableSymbol> {
+        self.db.lookup_var(self.file_id, name)
     }
 
-    fn add_type(&mut self, id: NodeId, ty: Type) {
+    fn add_type(&mut self, id: NodeId, ty: Rc<Type>) {
         self.db.add_type(self.file_id, id, ty);
     }
 
-    fn get_type(&mut self, id: NodeId) -> Option<&Type> {
+    fn get_type(&mut self, id: NodeId) -> Option<&Rc<Type>> {
         self.db.get_type(self.file_id, id)
     }
 
@@ -836,7 +838,69 @@ impl<'a> TypeAnalyzer<'a> {
         self.db.update_symbol_db(self.file_id, id, f);
     }
 
-    fn debug(&self, msg: String) {
-        // println!("DEBUG [TYPE] - {}", msg);
+    fn debug(&self, _msg: String) {
+        // println!("DEBUG [TYPE] - {}", _msg);
+    }
+
+    #[allow(dead_code)]
+    fn resolve_type_named(&mut self, ty: Rc<Type>, span: Span) -> Result<Rc<Type>, ()> {
+        match &*ty {
+            Type::Named(name) => {
+                if let Ok((_, result)) = self.lookup_type(*name, span) {
+                    return Ok(result);
+                }
+                Err(())
+            }
+            Type::Pointer(inner) => {
+                Ok(Rc::new(Type::Pointer(self.resolve_type_named(inner.clone(), span)?)))
+            }
+            Type::Array { ty, size } => {
+                Ok(Rc::new(Type::Array {
+                    ty: self.resolve_type_named(ty.clone(), span)?,
+                    size: *size,
+                }))
+            }
+            Type::Struct { name, fields } => {
+                let mut new_fields = Vec::new();
+                for (name, ty) in fields.iter() {
+                    new_fields.push((name.clone(), self.resolve_type_named(ty.clone(), span)?));
+                }
+                Ok(Rc::new(Type::Struct {
+                    name: *name,
+                    fields: Rc::new(new_fields),
+                }))
+            }
+            _ => Ok(ty)
+        }
+    }
+
+    fn lookup_type(&mut self, name: StrId, span: Span) -> Result<(StrId, Rc<Type>), ()> {
+        // lookup struct, 
+        // enum, type alias (future feature)
+        let structs = self.db.lookup_struct_with_import(self.file_id, name, false);
+        if structs.len() == 1 {
+            let symbol = structs[0].clone();
+            if self.file_id != symbol.file_id {
+                if !structs[0].visibility.is_public() {
+                    let name = self.config.str_pool.get(symbol.name);
+                    self.db.report_error(SemanticError::PrivateStruct {
+                        name: name.to_string(),
+                        span: symbol.span,
+                    });
+                    return Err(());
+                }
+            }
+
+            return Ok((name, structs[0].ty.clone()));
+        } else if structs.len() > 1 {
+            Err(())
+        } else {
+            let name = self.config.str_pool.get(name);
+            self.db.report_error(SemanticError::Raw {
+                message: format!("Cannot resolve type `{}`", name),
+                span: span,
+            });
+            Err(())
+        }
     }
 }

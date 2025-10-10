@@ -42,8 +42,8 @@ impl<'a> Parser<'a> {
             let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after assigment.").cloned();
             self.report_error(semi_colon);
 
-            let end_token = self.current_token().clone();
-            let span = self.make_span(start_token, end_token);
+            let end_token = self.get_last_span();
+            let span = self.make_span_fspan(start_token.span, end_token);
 
             Ok(self
                 .builder
@@ -51,8 +51,8 @@ impl<'a> Parser<'a> {
         } else {
             let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after expression.").cloned();
             self.report_error(semi_colon);
-            let end_token = self.current_token().clone();
-            let span = self.make_span(start_token, end_token);
+            let end_token = self.get_last_span();
+            let span = self.make_span_fspan(start_token.span, end_token);
             Ok(self.builder.expression_statement(span, self.file_id, lhs))
         }
     }
@@ -73,10 +73,13 @@ impl<'a> Parser<'a> {
             // Shift compound assignments
             TokenKind::ShlAssign => Ok(AssignmentOp::ShlAssign),
             TokenKind::ShrAssign => Ok(AssignmentOp::ShrAssign),
-            _ => Err(ParserError::Unexpected {
-                unexcepted: "Invalid assignment operator".to_string(),
-                span: self.current_token().span,
-            }),
+            _ => {
+                let msg = self.pool("Invalid assignment operator");
+                Err(ParserError::Unexpected {
+                    unexcepted: msg,
+                    span: self.current_token().span,
+                })
+            }
         }
     }
 
@@ -110,8 +113,8 @@ impl<'a> Parser<'a> {
         let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after return value.").cloned();
         self.report_error(semi_colon);
 
-        let end_token = self.current_token().clone();
-        let span = self.make_span(start_token, end_token);
+        let end_token = self.get_last_span();
+        let span = self.make_span_fspan(start_token.span, end_token);
 
         Ok(self.builder.return_statement(span, self.file_id, value))
     }
@@ -137,8 +140,9 @@ impl<'a> Parser<'a> {
                     Some(ElseBranch::If(Box::new(if_stmt)))
                 } else {
                     self.synchronize();
+                    let msg = self.pool("Failed to parse else if");
                     return Err(ParserError::Unexpected {
-                        unexcepted: "Failed to parse else if".to_string(),
+                        unexcepted: msg,
                         span: self.current_token().span,
                     });
                 }
@@ -178,8 +182,8 @@ impl<'a> Parser<'a> {
         let condition = self.expression()?;
         let body = self.parse_block()?;
 
-        let end_token = self.current_token().clone();
-        let span = self.make_span(start_token, end_token);
+        let end_token = self.get_last_span();
+        let span = self.make_span_fspan(start_token.span, end_token);
 
         let while_stmt = WhileStatement {
             condition: condition,
@@ -193,25 +197,25 @@ impl<'a> Parser<'a> {
     // fn for_statement(&mut self) {}
 
     fn parse_continue(&mut self) -> Result<Statement, ParserError> {
-        let start_token = self.current_token().clone();
+        let start_span = self.current_token().span;
         self.advance();
         let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after continue.").cloned();
         self.report_error(semi_colon);
 
-        let end_token = self.current_token().clone();
-        let span = self.make_span(start_token, end_token);
+        let end_token = self.get_last_span();
+        let span = self.make_span_fspan(start_span, end_token);
 
         Ok(self.builder.build_continue_statement(span, self.file_id))
     }
 
     fn parse_break(&mut self) -> Result<Statement, ParserError> {
-        let start_token = self.current_token().clone();
+        let start_span = self.current_token().span;
         self.advance();
         let semi_colon = self.consume(TokenKind::Semicolon, "Expected ';' after break.").cloned();
         self.report_error(semi_colon);
 
-        let end_token = self.current_token().clone();
-        let span = self.make_span(start_token, end_token);
+        let end_span = self.get_last_span();
+        let span = self.make_span_fspan(start_span, end_span);
 
         Ok(self.builder.build_break_statement(span, self.file_id))
     }

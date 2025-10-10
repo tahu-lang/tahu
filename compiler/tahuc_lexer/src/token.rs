@@ -1,4 +1,6 @@
-use tahuc_span::{FileId, Span};
+use std::usize;
+
+use tahuc_span::{FileId, Span, StrId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -20,6 +22,7 @@ pub enum TokenKind {
     Val,
     Operator,
     Const,
+    Annotation,
 
     // FFI
     Extern,
@@ -161,6 +164,7 @@ impl TokenKind {
             "as" => TokenKind::As,
             "enum" => TokenKind::Enum,
             "self" => TokenKind::Self_,
+            "annotation" => TokenKind::Annotation,
 
             // FFI
             "extern" => TokenKind::Extern,
@@ -225,11 +229,11 @@ pub struct Token {
     pub kind: TokenKind,
     pub span: Span,
     pub file_id: FileId,
-    pub lexeme: String,
+    pub lexeme: StrId,
 }
 
 impl Token {
-    pub fn new(kind: TokenKind, span: Span, file_id: FileId, lexeme: String) -> Self {
+    pub fn new(kind: TokenKind, span: Span, file_id: FileId, lexeme: StrId) -> Self {
         Self {
             kind,
             span,
@@ -243,7 +247,7 @@ impl Token {
             kind: TokenKind::Eof,
             span: Span::dummy(),
             file_id: FileId(0),
-            lexeme: "".to_string(),
+            lexeme: StrId(usize::MAX),
         }
     }
 }

@@ -1,26 +1,31 @@
 use tahuc_ast::ty::Type;
 use tahuc_hir::hir::HirExpression;
+use tahuc_module::config::Config;
 
 use crate::{
     builder::builder::Builder,
     mir::{
         instruction::{CastKind, MirOperand},
-        ty::{MirType, ToMirType},
+        ty::MirType,
     },
 };
 
 impl Builder {
     pub(crate) fn build_cast(
         &mut self,
+        config: &mut Config,
         value: &Box<HirExpression>,
         from: &Type,
         ty: &Type,
     ) -> MirOperand {
-        let value = self.build_expression(value, false);
-        let target = self.new_local(ty.to_mir_ty());
+        let ty = self.ty_to_mir(config, ty);
+        let from = self.ty_to_mir(config, from);
 
-        let from_ty = from.to_mir_ty();
-        let to_ty = ty.to_mir_ty();
+        let value = self.build_expression(config, value, false);
+        let target = self.new_local(ty.clone());
+
+        let from_ty = from;
+        let to_ty = ty;
         let kind = self.infer_casting(from_ty.clone(), to_ty.clone());
 
         self.cast(target, kind, value, from_ty, to_ty);
@@ -162,7 +167,6 @@ impl Builder {
         if self.is_unsigned_int(&from) && to == MirType::Char {
             return CastKind::Trunc;
         }
-
 
         // fallback
         CastKind::NoOp

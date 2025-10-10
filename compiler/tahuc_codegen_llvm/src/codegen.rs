@@ -4,6 +4,7 @@ use tahuc_hir::hir::FunctionId;
 use tahuc_mir::mir::{
     BasicBlockId, GlobalId, LocalId, MirModule, instruction::MirOperand, ty::MirConstant,
 };
+use tahuc_module::config::Config;
 use tahuc_span::FileId;
 
 use crate::llvm::{
@@ -63,24 +64,24 @@ impl Codegen {
         Context::create()
     }
 
-    pub fn compile_module(&mut self, module: &MirModule) {
+    pub fn compile_module(&mut self, config: &mut Config, module: &MirModule) {
         self.file_id = module.file_id;
 
         for (id, ty) in &module.globals {
-            let ty = self.ty_to_llvm(ty);
+            let ty = self.ty_to_llvm(config, ty);
             self.global_types.insert(*id, ty);
         }
 
         for function in &module.extern_functions {
-            self.declare_extern_function(function);
+            self.declare_extern_function(config, function);
         }
 
         for function in &module.functions {
-            self.declare_function(function);
+            self.declare_function(config, function);
         }
 
         for function in &module.functions {
-            self.compile_function(function);
+            self.compile_function(config, function);
         }
     }
 
@@ -172,13 +173,46 @@ impl Codegen {
         self.module.print_to_string()
     }
 
-    pub fn write_object_file(&self, path: &str) {
-        Target::init_x86();
+    fn setup_target(&self, config: &Config) {
+        match config.target.arch.as_str() {
+            "x86_64" => {
+                Target::init_x86();
+            }
+            "arm" => {
+                Target::init_arm();
+            }
+            "aarch64" => {
+                Target::init_arch64();
+            }
+            "amdgpu" => {
+                Target::init_amdgpu();
+            }
+            "longarch" => {
+                Target::init_loongarch();
+            }
+            "mips" => {
+                Target::init_mips();
+            }
+            "wasm" => {
+                Target::init_wasm();
+            }
+            _ => {
+                panic!("Unsupported target architecture: {}", config.target.arch);
+            }
+        }
+    }
+
+    pub fn write_object_file(&self, config: &Config, path: &str) {
+        self.setup_target(config);
 
         let triple = TargetTriple::default();
         let target = Target::from_triple(triple);
+    
+        if let Err(err) = target {
+            panic!("failed to create target: {}", err);
+        }
 
-        let machine = target.create_target_machine(
+        let machine = target.unwrap().create_target_machine(
             triple,
             "",
             "",
@@ -187,7 +221,12 @@ impl Codegen {
             CodeModel::Default,
         );
 
-        let result = machine.emit_to_file(self.module, path, FileType::Object);
+        let file_type = match config.output {
+            tahuc_module::config::Output::Asm => FileType::Assembly,
+            _ => FileType::Object,
+        };
+
+        let result = machine.emit_to_file(self.module, path, file_type);
 
         if let Err(s) = result {
             panic!("failed to write object file {}", s);
