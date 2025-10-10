@@ -6,6 +6,7 @@ use tahuc_mir::mir::{
     instruction::{CastKind, MirInstruction, MirOperand},
     ty::{MirType, MirTypeKind},
 };
+use tahuc_module::config::Config;
 
 use crate::{
     codegen::Codegen,
@@ -13,27 +14,27 @@ use crate::{
 };
 
 impl Codegen {
-    pub(crate) fn compile_basic_block(&mut self, block: &MirBasicBlock) {
+    pub(crate) fn compile_basic_block(&mut self, config: &mut Config, block: &MirBasicBlock) {
         let bb = self.basic_blocks_map[&block.id];
         self.builder.position_at_end(bb);
 
         for instruction in &block.instructions {
-            self.compile_instruction(instruction);
+            self.compile_instruction(config, instruction);
         }
 
         self.compile_terminator(&block.terminator);
     }
 
-    pub(crate) fn compile_instruction(&mut self, instruction: &MirInstruction) {
+    pub(crate) fn compile_instruction(&mut self, config: &mut Config, instruction: &MirInstruction) {
         match &instruction {
             MirInstruction::Alloca { target, ty } => {
-                let ty = self.ty_to_llvm(ty);
+                let ty = self.ty_to_llvm(config, ty);
                 let ptr = self.builder.alloca(ty);
 
                 self.add_ptr(*target, ptr);
             }
             MirInstruction::Load { target, ptr, ty } => {
-                let ty = self.ty_to_llvm(ty);
+                let ty = self.ty_to_llvm(config, ty);
                 let ptr = self.operand_ptr(ptr).unwrap();
                 let value = self.builder.load(ty, ptr);
 
@@ -52,7 +53,7 @@ impl Codegen {
                 inner_ty,
                 ..
             } => {
-                let ty = self.ty_to_llvm(inner_ty);
+                let ty = self.ty_to_llvm(config, inner_ty);
                 let ptr = self.operand_ptr(base).unwrap();
                 let binding: Result<Vec<IntValue>, _> = indices
                     .iter()
@@ -74,7 +75,7 @@ impl Codegen {
                 let left_val = self.operand_value(left).unwrap();
                 let right_val = self.operand_value(right).unwrap();
 
-                let value = self.build_binary_op(op, left_val, right_val, ty).unwrap();
+                let value = self.build_binary_op(config, op, left_val, right_val, ty).unwrap();
 
                 self.add_value(*target, value);
             }
@@ -109,7 +110,7 @@ impl Codegen {
                 }
             }
             MirInstruction::Phi { target, values, ty } => {
-                let ty = self.ty_to_llvm(ty);
+                let ty = self.ty_to_llvm(config, ty);
                 let mut phi = self.builder.phi(ty);
 
                 let incomings: Vec<(BasicValue, BasicBlock)> = values
@@ -146,7 +147,7 @@ impl Codegen {
             } => {
                 let op = self.cast_op_to_llvm(kind);
                 let value = self.operand_value(value).unwrap();
-                let to = self.ty_to_llvm(to);
+                let to = self.ty_to_llvm(config, to);
 
                 let value = self.builder.cast(op, value, to);
 
@@ -204,6 +205,7 @@ impl Codegen {
 
     fn build_binary_op(
         &mut self,
+        config: &mut Config,
         op: &BinaryOp,
         left: BasicValue,
         right: BasicValue,
@@ -268,7 +270,7 @@ impl Codegen {
                     }
                     // comparison: reuse signed int predicates
                     _ => {
-                        let target_ty = self.ty_to_llvm(ty);
+                        let target_ty = self.ty_to_llvm(config, ty);
                         let left_val = left.into_int_value();
                         let right_val = right.into_int_value();
 
@@ -391,12 +393,12 @@ impl Codegen {
             UnaryOp::Minus => {
                 let value = self.operand_value(value).unwrap();
 
-                let result = if ty.clone().is_integer() {
+                let result = if ty.is_integer_ref() {
                     let value = self
                     .builder
                     .i_neg(value.into_int_value());
                     BasicValue::new(value.as_value())
-                } else if ty.clone().is_float() {
+                } else if ty.is_float_ref() {
                     let value = self
                     .builder
                     .f_neg(value.into_float_value());
