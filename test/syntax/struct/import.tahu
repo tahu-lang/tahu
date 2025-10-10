@@ -1,0 +1,5 @@
+import { User } from "fixtures";
+
+fn main() {
+    val person = User { name: "eko", age: 25 };
+}

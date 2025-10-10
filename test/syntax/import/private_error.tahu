@@ -1,0 +1,5 @@
+import { min } from "fixtures";
+
+fn main() {
+    min();
+}

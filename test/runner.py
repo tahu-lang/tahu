@@ -1,4 +1,6 @@
 import subprocess, pathlib, sys, difflib, time
+import concurrent.futures
+import multiprocessing
 
 COMPILER = "../target/debug/tahuc"
 
@@ -64,16 +66,57 @@ def test_result(src: pathlib.Path, return_code: int, is_error: bool, stderr: str
     return 0
 
 
+# def main():
+#     start_time = time.time()
+#     faileds = []
+#     passed = []
+#     current_dir = pathlib.Path(__file__).parent
+#     files = [x for x in current_dir.rglob("*.tahu")]
+
+#     print("run:", files.__len__(), "test case")
+
+#     for tahu_file in files:
+#         is_error = tahu_file.stem.endswith("_error")
+#         expected_file = tahu_file.with_suffix(".expected")
+
+#         if expected_file.exists():
+#             result = run_test_expected(tahu_file, expected_file, is_error)
+#         else:
+#             result = run_test(tahu_file, is_error)
+
+#         if result == 0:
+#             passed.append(tahu_file)
+#         else:
+#             faileds.append(tahu_file)
+
+#     object = [x for x in current_dir.rglob("*.o")]
+#     for obj in object:
+#         obj.unlink()
+            
+#     passed_count = len(passed)
+#     failed_count = len(faileds)
+
+#     if failed_count == 0:
+#         status_msg = f"{GREEN}OK{RESET}"
+#     else:
+#         status_msg = f"{RED}FAIL{RESET}"
+
+#     print(f"Result: {status_msg} — {passed_count} passed, {failed_count} failed")
+#     print(f"Finish: {time.time() - start_time}s")
+
+#     if faileds.__len__() != 0:
+#         return 1
+#     else:
+#         return 0
+
 def main():
     start_time = time.time()
-    faileds = []
-    passed = []
     current_dir = pathlib.Path(__file__).parent
-    files = [x for x in current_dir.rglob("*.tahu")]
+    files = list(current_dir.rglob("*.tahu"))
 
-    print("run:", files.__len__(), "test case")
+    print("run:", len(files), "test case")
 
-    for tahu_file in files:
+    def process_file(tahu_file):
         is_error = tahu_file.stem.endswith("_error")
         expected_file = tahu_file.with_suffix(".expected")
 
@@ -81,14 +124,26 @@ def main():
             result = run_test_expected(tahu_file, expected_file, is_error)
         else:
             result = run_test(tahu_file, is_error)
+        
+        return tahu_file, result
 
-        if result == 0:
-            passed.append(tahu_file)
-        else:
-            faileds.append(tahu_file)
+    passed = []
+    faileds = []
+    
+    # Use ThreadPoolExecutor for I/O bound tasks
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_file = {executor.submit(process_file, file): file for file in files}
+        
+        for future in concurrent.futures.as_completed(future_to_file):
+            tahu_file, result = future.result()
+            if result == 0:
+                passed.append(tahu_file)
+            else:
+                faileds.append(tahu_file)
 
-    object = [x for x in current_dir.rglob("*.o")]
-    for obj in object:
+    # Cleanup
+    objects = list(current_dir.rglob("*.o"))
+    for obj in objects:
         obj.unlink()
             
     passed_count = len(passed)
@@ -102,10 +157,7 @@ def main():
     print(f"Result: {status_msg} — {passed_count} passed, {failed_count} failed")
     print(f"Finish: {time.time() - start_time}s")
 
-    if faileds.__len__() != 0:
-        return 1
-    else:
-        return 0
+    return 1 if faileds else 0
 
 
 if __name__ == "__main__":
