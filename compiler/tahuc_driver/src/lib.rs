@@ -6,16 +6,17 @@ use tahuc_diagnostics::{
     emitter::terminal::stderr_emitter,
     reporter::DiagnosticReporter,
 };
-use tahuc_hir::{hir::HirModule, Hir};
+use tahuc_hir::{hir::HirModule, HirBuilder};
+use tahuc_mir::builder::builder::Builder;
 use tahuc_module::{config::Config, resolver::{ModuleResolver, ModuleResult}};
-use tahuc_semantic::{database::Database, Analyzer};
-use tahuc_span::FileId;
+use tahuc_semantic::{database::database::Database, Analyzer};
+use tahuc_span::{FileId, StrPool};
 
 use crate::cmd::parse_command;
 
 mod cmd;
 
-fn report_error(reporter: DiagnosticReporter, context: DiagnosticContext) {
+fn report_error(reporter: &mut DiagnosticReporter, context: &mut DiagnosticContext) {
     let mut terminal_emitter = stderr_emitter();
     reporter.emit_all(&mut terminal_emitter, &context);
     // terminal_emitter.emit_summary(reporter.clone());
@@ -24,36 +25,57 @@ fn report_error(reporter: DiagnosticReporter, context: DiagnosticContext) {
     }
 }
 
-fn build_hir(db: &mut Database, module: &HashMap<FileId, ModuleResult>) -> HashMap<FileId, (HirModule, PathBuf)> {
-    let mut hir = Hir::new(db);
+fn build_hir(config: &mut Config, db: &mut Database, module: &HashMap<FileId, ModuleResult>) -> HashMap<FileId, (HirModule, PathBuf)> {
+    let start_time = Instant::now();
+    let mut hir = HirBuilder::new(&config, db);
     let module = hir.to_hir(&module);
+    // tahuc_hir::printer::HirPrinter::new(&config).print_program(&module);
+    config.timings.insert(tahuc_module::config::Timings::Hir, start_time.elapsed());
     module
 }
 
-fn build_middle(config: &Config, modules: &HashMap<FileId, (HirModule, PathBuf)>) {
-    let mut mir_builder = tahuc_mir::builder::builder::Builder::new();
+fn build_middle(config: &mut Config, modules: &HashMap<FileId, (HirModule, PathBuf)>) {
+    let mut mir_builder = Builder::new();
     let context = Codegen::context();
 
 
     for (_, (module, path_buf)) in modules {
-        let mir = mir_builder.build_module(module);
+        let start_time_mir = Instant::now();
+        let mir = mir_builder.build_module(config, module);
+        config.timings.entry(tahuc_module::config::Timings::Mir)
+            .and_modify(|e| *e += start_time_mir.elapsed())
+            .or_insert(start_time_mir.elapsed());
+        // tahuc_mir::printer::print_mir(&config.str_pool, &mir);
+        
         let path = path_buf.to_str().unwrap().to_string();
 
-        let mut codegen = Codegen::new(context, path.clone());
-        codegen.compile_module(&mir);
+        let start_time_codegen = Instant::now();
+        let mut codegen = Codegen::new(context, path);
+        codegen.compile_module(config, &mir);
+        config.timings.entry(tahuc_module::config::Timings::Llvm)
+            .and_modify(|e| *e += start_time_codegen.elapsed())
+            .or_insert(start_time_codegen.elapsed());
+
+        // println!("{}", codegen.to_string());
 
         codegen.verify();
         if !config.is_test {
+            let start_time = Instant::now();
             let path = replace_extension(&path_buf, "o");
-            codegen.write_object_file(&path);
+            codegen.write_object_file(&config, &path);
+            config.timings.entry(tahuc_module::config::Timings::Write)
+                .and_modify(|e| *e += start_time.elapsed())
+                .or_insert(start_time.elapsed());
         }
     }
 }
 
-fn linker(config: Config, modules: HashMap<FileId, ModuleResult>) {
+fn linker(config: &mut Config, modules: HashMap<FileId, ModuleResult>) {
+    let start_time = Instant::now();
+
     let extension = get_executable_name();
 
-    for file in config.files {
+    for file in &config.files {
         let mut cmd = Command::new("gcc");
         let exe = replace_extension(&file.path, &extension);
 
@@ -105,16 +127,19 @@ fn linker(config: Config, modules: HashMap<FileId, ModuleResult>) {
                 println!("{}", err);
             }
         }
+
+        config.timings.entry(tahuc_module::config::Timings::Linking)
+            .and_modify(|e| *e += start_time.elapsed())
+            .or_insert(start_time.elapsed());
     }
 }
 
 fn get_executable_name() -> String {
-    #[cfg(target_os = "windows")]
-    {
+    if cfg!(windows) {
         return "exe".to_string();
+    } else {
+        "".to_string()
     }
-
-    "".to_string()
 }
 
 fn replace_extension(path: &PathBuf, new_ext: &str) -> String {
@@ -135,28 +160,39 @@ fn pretty_path(path: &PathBuf) -> String {
 
 pub fn main() {
     let start_time = Instant::now();
-    let config = parse_command();
+    let mut pool = StrPool::default();
+    let mut config = parse_command(&mut pool);
 
     let mut context = DiagnosticContext::new();
     let mut reporter = DiagnosticReporter::new();
     
     let start_module = Instant::now();
-    let mut module_resolver = ModuleResolver::new(&config, &mut context, &mut reporter);
-    let results = module_resolver.parse_modules();
+    let mut module_resolver = ModuleResolver::new(&mut context, &mut reporter);
+    let results = module_resolver.parse_modules(&mut config);
     println!("Module resolution took {:?}", start_module.elapsed());
+    report_error(&mut reporter, &mut context);
 
+    let start_analyzer = Instant::now();
     let mut analyzer = Analyzer::new(&mut reporter);
-    let mut db = analyzer.analyze_depedencies(&results);
+    let mut db = analyzer.analyze_depedencies(&mut config, &results);
+    config.timings.insert(tahuc_module::config::Timings::SemanticTotal, start_analyzer.elapsed());
 
-    report_error(reporter, context);
+    // db.print_debug();
 
-    let hir = build_hir(&mut db, &results);
+    report_error(&mut reporter, &mut  context);
 
-    build_middle(&config, &hir);
+    let hir = build_hir(&mut config, &mut db, &results);
+
+    let start_middle = Instant::now();
+    build_middle(&mut config, &hir);
+    println!("Build middle took {:?}", start_middle.elapsed());
 
     if !config.is_test {
-        linker(config, results);
+        linker(&mut config, results);
     }
 
-    println!("Compilation success {:?}", start_time.elapsed());
+    config.timings.insert(tahuc_module::config::Timings::Total, start_time.elapsed());
+
+    // config.print_timings();
+    println!("Compilation success");
 }

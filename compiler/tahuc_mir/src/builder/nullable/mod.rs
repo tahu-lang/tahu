@@ -1,4 +1,5 @@
 use tahuc_hir::hir::{HirExpression, HirLiteral};
+use tahuc_module::config::Config;
 
 use crate::{
     builder::builder::{Builder},
@@ -11,6 +12,7 @@ use crate::{
 impl Builder {
     pub(crate) fn build_nullable(
         &mut self,
+        config: &mut Config,
         expression: &HirExpression,
         addr: MirOperand,
         base_ty: &MirType,
@@ -64,7 +66,7 @@ impl Builder {
         {
             // if null dont store value
         } else {
-            let val = self.build_expression(expression, false);
+            let val = self.build_expression(config, expression, false);
             self.store(MirOperand::Local(value_ptr), val, inner_ty.clone());
         }
     }

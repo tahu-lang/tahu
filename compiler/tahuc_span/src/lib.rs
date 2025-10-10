@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, fmt::Display, path::PathBuf};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Span {
@@ -16,6 +16,12 @@ pub struct Position {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileId(pub u32);
+
+impl Display for FileId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Id({})", self.0)
+    }
+}
 
 impl Span {
     pub fn new(start: Position, end: Position, file_id: FileId) -> Self {
@@ -97,6 +103,122 @@ impl SourceFile {
         let start = span.start.offset as usize;
         let end = span.end.offset as usize;
         self.content.get(start..end)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct StrId(pub usize);
+
+impl std::fmt::Display for StrId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StrPool {
+    mapping: HashMap<String, StrId>,
+    pool: Vec<String>,
+    builtin: HashMap<String, StrId>,
+    next_id: usize,
+}
+
+impl StrPool {
+    pub fn new() -> Self {
+        Self {
+            mapping: HashMap::new(),
+            pool: Vec::new(),
+            builtin: HashMap::new(),
+            next_id: 0,
+        }
+    }
+
+    fn next_id(&mut self) -> StrId {
+        let id = StrId(self.next_id);
+        self.next_id += 1;
+        id
+    }
+
+    pub fn pool(&mut self, str: &str) -> StrId {
+        if let Some(id) = self.mapping.get(str) {
+            *id
+        } else {
+            let id = self.next_id();
+            self.mapping.insert(str.to_string(), id);
+            self.pool.push(str.to_string());
+            id
+        }
+    }
+
+    pub fn builtin_pool(&mut self, str: &str) -> StrId {
+        if let Some(id) = self.builtin.get(str) {
+            *id
+        } else {
+            let id = self.next_id();
+            self.builtin.insert(str.to_string(), id);
+            self.mapping.insert(str.to_string(), id);
+            self.pool.push(str.to_string());
+            id
+        }
+    }
+
+    pub fn get(&self, id: StrId) -> &str {
+        &self.pool[id.0]
+    }
+
+    pub fn get_clone(&self, id: StrId) -> String {
+        self.pool[id.0].clone()
+    }
+
+    pub fn get_builtin(&self, str: &str) -> StrId {
+        self.builtin.get(str).copied().unwrap()
+    }
+
+    fn keyword() -> Vec<&'static str> {
+        vec![
+            "import", "from", "as",
+            "enum", "struct",
+
+            "fn", "extern",
+
+            "var", "val", "const",
+            "if", "else", "while",
+            "do", "break", "continue",
+            "return", "pub",
+            "true", "false"
+        ]
+    }
+
+    fn builtin() -> Vec<&'static str> {
+        vec![
+            "is_null", "value",
+        ]
+    }
+}
+
+impl Default for StrPool {
+    fn default() -> Self {
+        let mut str = Self::new();
+
+        for keyword in Self::keyword() {
+            str.pool(keyword);
+        }
+
+        for builtin in Self::builtin() {
+            str.builtin_pool(builtin);
+        }
+
+        str
+    }
+}
+
+impl Display for StrPool {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "StrPool {{\n")?;
+        for (k, v) in &self.mapping {
+            write!(f, "{}: {}\n", k, v.0)?;
+        }
+        write!(f, "}}")
     }
 }
 

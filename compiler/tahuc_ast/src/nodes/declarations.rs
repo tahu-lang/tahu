@@ -1,4 +1,6 @@
-use tahuc_span::{FileId, Span};
+use std::rc::Rc;
+
+use tahuc_span::{FileId, Span, StrId};
 
 use crate::{
     AstBuilder, Type,
@@ -30,35 +32,35 @@ pub struct Import {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportTable {
-    pub name: String,
-    pub alias: Option<String>,
+    pub name: StrId,
+    pub alias: Option<StrId>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Struct {
     pub visibility: Visibility,
-    pub name: String,
+    pub name: StrId,
     pub fields: Vec<AstNode<StructField>>,
-    pub ty: Type,
+    pub ty: Rc<Type>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructField {
-    pub name: String,
-    pub r#type: Type,
+    pub name: StrId,
+    pub r#type: Rc<Type>,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExternFn {
-    pub name: String,
+    pub name: StrId,
     pub parameters: Vec<Parameter>,
-    pub return_type: Type,
+    pub return_type: Rc<Type>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Visibility {
     Public,
     Private,
@@ -79,7 +81,7 @@ pub struct Field {
     pub visibility: Visibility,
     pub name: String,
     pub is_mutable: bool,
-    pub r#type: Type,
+    pub r#type: Rc<Type>,
     pub init: Expression,
     pub span: Span,
 }
@@ -89,9 +91,10 @@ pub type Function = AstNode<FunctionKind>;
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionKind {
     pub visibility: Visibility,
-    pub name: String,
+    pub decorators: Vec<AstNode<Decorator>>,
+    pub name: StrId,
     pub parameters: Vec<Parameter>,
-    pub return_type: Type,
+    pub return_type: Rc<Type>,
     pub body: Block,
     pub span: Span,
 }
@@ -100,9 +103,23 @@ pub type Parameter = AstNode<ParameterKind>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParameterKind {
-    pub name: String,
-    pub r#type: Type,
+    pub name: StrId,
+    pub r#type: Rc<Type>,
     pub default: Option<Expression>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Decorator {
+    pub name: StrId,
+    pub arguments: Vec<DecoratorValue>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DecoratorValue {
+    pub name: Expression,
+    pub value: Option<Expression>,
     pub span: Span,
 }
 
@@ -112,7 +129,8 @@ impl AstBuilder {
         span: Span,
         file_id: FileId,
         visibility: Visibility,
-        name: String,
+        decorators: Vec<AstNode<Decorator>>,
+        name: StrId,
         parameters: Vec<Parameter>,
         return_type: Type,
         body: Block,
@@ -123,9 +141,10 @@ impl AstBuilder {
             file_id,
             FunctionKind {
                 visibility,
+                decorators,
                 name,
                 parameters,
-                return_type,
+                return_type: Rc::new(return_type),
                 body,
                 span,
             }
@@ -139,5 +158,19 @@ impl AstBuilder {
         parameter: ParameterKind,
     ) -> AstNode<ParameterKind> {
         AstNode::new(self.next_id(), span, file_id, parameter)
+    }
+
+    pub fn build_decorator(
+        &mut self,
+        span: Span,
+        file_id: FileId,
+        name: StrId,
+        arguments: Vec<DecoratorValue>,
+    ) -> AstNode<Decorator> {
+        AstNode::new(self.next_id(), span, file_id, Decorator {
+            name,
+            arguments,
+            span,
+        })
     }
 }

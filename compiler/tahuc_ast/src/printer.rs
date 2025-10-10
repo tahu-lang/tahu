@@ -71,7 +71,7 @@ impl TreePrinter {
 
     fn print_variable(&mut self, var: &Variable) {
         let mutability = if var.is_mutable { "mut " } else { "" };
-        let type_info = var.variable_type.clone();
+        let type_info = &var.variable_type;
 
         self.print_node(&format!(
             "Variable: {}{} {}",

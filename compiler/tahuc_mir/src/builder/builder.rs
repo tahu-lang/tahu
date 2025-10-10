@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use tahuc_ast::ty::Type;
 use tahuc_hir::hir::{HirBlock, HirLiteral, HirModule, StructId, VariableId};
+use tahuc_module::config::Config;
 
 use crate::mir::{
     block::MirTerminator, function::{MirExternFunction, MirFunction}, instruction::MirOperand, ty::{MirConstant, MirType, ToMirType}, BasicBlockId, GlobalId, LocalId, MirModule
@@ -43,6 +44,7 @@ impl Termination {
 pub(crate) struct Variable {
     pub(crate) id: LocalId,
     pub(crate) ty: MirType,
+    #[allow(dead_code)]
     pub(crate) inner_ty: Option<MirType>,
     pub(crate) ctx: VariableContext,
 }
@@ -74,6 +76,9 @@ impl VariableContext {
 }
 
 pub struct Builder {
+    /// config
+    // pub(crate) config: &'a Config<'a>,
+    
     /// global map
     pub(crate) struct_map: HashMap<StructId, GlobalId>,
 
@@ -98,6 +103,7 @@ pub struct Builder {
 impl Builder {
     pub fn new() -> Self {
         Self {
+            // config,
             struct_map: HashMap::new(),
             current_function: None,
             current_block: None,
@@ -108,7 +114,7 @@ impl Builder {
         }
     }
 
-    pub fn build_module(&mut self, hir_module: &HirModule) -> MirModule {
+    pub fn build_module(&mut self, config: &mut Config, hir_module: &HirModule) -> MirModule {
         let mut module = MirModule::new();
         module.file_id = hir_module.file_id;
         self.module = Some(module);
@@ -117,23 +123,24 @@ impl Builder {
         let mut functions = Vec::new();
 
         for struct_decl in hir_module.structs.iter() {
-            let id = self.new_global(struct_decl.ty.to_mir_ty());
+            let ty = self.ty_to_mir(config, &struct_decl.ty);
+            let id = self.new_global(ty);
             self.struct_map.insert(struct_decl.id, id);
         }
 
         for function in hir_module.functions.iter() {
-            functions.push(self.build_function(function));
+            functions.push(self.build_function(config, function));
         }
 
         for function in hir_module.extern_functions.iter() {
             extern_functions.push(MirExternFunction {
                 id: function.id,
-                name: function.name.clone(),
-                return_type: function.return_type.to_mir_ty(),
+                name: function.name,
+                return_type: self.ty_to_mir(config, &function.return_type),
                 parameters: function
                     .parameters
                     .iter()
-                    .map(|p| p.ty.to_mir_ty())
+                    .map(|p| self.ty_to_mir(config, &p.ty))
                     .collect(),
             });
         }
@@ -143,9 +150,9 @@ impl Builder {
         self.module.take().unwrap().clone()
     }
 
-    pub(crate) fn build_block(&mut self, block: &HirBlock) -> Termination {
+    pub(crate) fn build_block(&mut self, config: &mut Config, block: &HirBlock) -> Termination {
         for statement in block.statements.iter() {
-            let termination = self.build_statement(statement);
+            let termination = self.build_statement(config, statement);
             if termination.is_terminated() {
                 return termination;
             }
@@ -167,16 +174,16 @@ impl Builder {
         self.loop_stack.clear();
     }
 
-    pub(crate) fn build_literal(&mut self, literal: &HirLiteral, ty: MirType) -> MirConstant {
+    pub(crate) fn build_literal(&mut self, config: &mut Config, literal: &HirLiteral, ty: MirType) -> MirConstant {
         match literal {
             HirLiteral::String(s) => MirConstant::String(s.clone()),
             HirLiteral::Char(c) => MirConstant::Char(*c),
             HirLiteral::Integer(i) => MirConstant::Int { value: *i, ty: ty },
             HirLiteral::Float(d) => MirConstant::Float { value: *d, ty: ty },
             HirLiteral::Bool(b) => MirConstant::Bool(*b),
-            HirLiteral::Null(ty) => match ty {
-                Type::Nullable(inner) => MirConstant::Null(inner.to_mir_ty()),
-                _ => MirConstant::Null(ty.to_mir_ty()),
+            HirLiteral::Null(ty) => match &**ty {
+                Type::Nullable(inner) => MirConstant::Null(self.ty_to_mir(config, &inner)),
+                _ => MirConstant::Null(self.ty_to_mir(config, ty)),
             },
         }
     }
@@ -326,5 +333,9 @@ impl Builder {
 
     pub(crate) fn emit_jump(&mut self, target: BasicBlockId) {
         self.set_terminator(MirTerminator::Jump { target });
+    }
+
+    pub(crate) fn ty_to_mir(&mut self, config: &mut Config, ty: &Type) -> MirType {
+        ty.to_mir_ty(config.str_pool)
     }
 }

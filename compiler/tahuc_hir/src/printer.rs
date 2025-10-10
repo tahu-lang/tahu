@@ -1,12 +1,21 @@
-use crate::hir::{HirBlock, HirElseBranch, HirExpression, HirIfStatement, HirLValue, HirModule, HirStatement};
+use std::{collections::HashMap, path::PathBuf};
+
+use tahuc_module::config::Config;
+use tahuc_span::{FileId, StrPool};
+
+use crate::hir::{
+    HirBlock, HirElseBranch, HirExpression, HirIfStatement, HirLValue, HirModule, HirStatement,
+};
 
 pub struct HirPrinter {
+    str_pool: StrPool,
     is_last: Vec<bool>,
 }
 
 impl HirPrinter {
-    pub fn new() -> Self {
+    pub fn new(config: &Config) -> Self {
         Self {
+            str_pool: config.str_pool.clone(),
             is_last: Vec::new(),
         }
     }
@@ -46,72 +55,82 @@ impl HirPrinter {
         self.is_last.pop();
     }
 
+    pub fn print_program(&mut self, program: &HashMap<FileId, (HirModule, PathBuf)>) {
+        for (file_id, (module, path)) in program {
+            self.print_node(&format!("File: id{} , path: {}", file_id, path.display()));
+            self.with_child(true, |printer| {
+                printer.print_module(&module);
+            });
+        }
+    }
+
     pub fn print_module(&mut self, module: &HirModule) {
         self.print_node("Module");
-        self.with_child(true, |printer| {
-            for (i, ty) in module.structs.iter().enumerate() {
-                let is_last = i == module.structs.len() - 1;
-                printer.with_child(is_last, |printer| {
-                    printer.print_node(&format!("Struct: {}", &ty.name));
-                    printer.with_child(true, |printer| {
-                        printer.print_node("Fields");
-                        for (i, field) in ty.fields.iter().enumerate() {
-                            let is_last = i == ty.fields.len() - 1;
-                            printer.with_child(is_last, |printer| {
-                                printer.print_node(&format!("Field: {}", &field.name));
-                                printer.with_child(true, |printer| {
-                                    printer.print_node(&format!("Type: {}", &field.ty));
-                                });
+        self.with_child(false, |printer| {
+            for ty in module.structs.iter() {
+                let name = printer.str_pool.get(ty.name);
+                printer.print_node(&format!("Struct: {}", name));
+                printer.with_child(true, |printer| {
+                    printer.print_node("Fields");
+                    for (i, field) in ty.fields.iter().enumerate() {
+                        let is_last = i == ty.fields.len() - 1;
+                        printer.with_child(is_last, |printer| {
+                            let name = printer.str_pool.get(field.name);
+                            printer.print_node(&format!("Field: {}", name));
+                            printer.with_child(true, |printer| {
+                                printer.print_node(&format!("Type: {}", &field.ty));
                             });
-                        }
-                    });
+                        });
+                    }
                 });
             }
         });
-        self.with_child(true, |printer| {
-            for (i, function) in module.extern_functions.iter().enumerate() {
-                let is_last = i == module.functions.len() - 1;
-                printer.with_child(is_last, |printer| {
-                    printer.print_node(&format!("Extern Function: {} -> {}", &function.name, function.return_type));
-                    printer.with_child(true, |printer| {
-                        printer.print_node("Parameters");
+        self.with_child(false, |printer| {
+            for function in &module.extern_functions {
+                let name = printer.str_pool.get(function.name);
+                printer.print_node(&format!(
+                    "Extern Function: {} -> {}",
+                    name, function.return_type
+                ));
+                for (i, parameter) in function.parameters.iter().enumerate() {
+                    let is_last = i == function.parameters.len() - 1;
+                    printer.with_child(is_last, |printer| {
+                        let name = printer.str_pool.get(parameter.name);
+                        printer.print_node(&format!("Parameter: {}", name));
                         printer.with_child(true, |printer| {
-                            for parameter in &function.parameters {
-                                printer.print_node(&format!("Parameter: {}", &parameter.name));
-                                printer.with_child(true, |printer| {
-                                    printer.print_node(&format!("Type: {}", &parameter.ty));
-                                });
-                            }
+                            printer.print_node(&format!("Type: {}", &parameter.ty));
                         });
                     });
-                });
+                }
             }
         });
-        self.with_child(true, |printer| {
-            for (i, function) in module.functions.iter().enumerate() {
-                let is_last = i == module.functions.len() - 1;
-                printer.with_child(is_last, |printer| {
-                    printer.print_node(&format!("Function: {} -> {}", &function.name, &function.return_type));
-                    printer.with_child(false, |printer| {
-                        printer.print_node("Parameters");
-                        for (i, parameter) in function.parameters.iter().enumerate() {
-                            let is_last = i == function.parameters.len() - 1;
-                            printer.with_child(is_last, |printer| {
-                                printer.print_node(&format!("Parameter: {}", &parameter.name));
-                                printer.with_child(true, |printer| {
-                                    printer.print_node(&format!("Type: {}", &parameter.ty));
-                                });
+        for (i, function) in module.functions.iter().enumerate() {
+            let is_last = i == module.functions.len() - 1;
+            self.with_child(is_last, |printer| {
+                let name = printer.str_pool.get(function.name);
+                printer.print_node(&format!(
+                    "Function: {} -> {}",
+                    name, &function.return_type
+                ));
+                printer.with_child(false, |printer| {
+                    printer.print_node("Parameters");
+                    for (i, parameter) in function.parameters.iter().enumerate() {
+                        let is_last = i == function.parameters.len() - 1;
+                        printer.with_child(is_last, |printer| {
+                            let name = printer.str_pool.get(parameter.name);
+                            printer.print_node(&format!("Parameter: {}", name));
+                            printer.with_child(true, |printer| {
+                                printer.print_node(&format!("Type: {}", &parameter.ty));
                             });
-                        }
-                    });
-
-                    printer.with_child(true, |printer| {
-                        printer.print_node("Blocks");
-                        printer.print_block(&function.body);
-                    });
+                        });
+                    }
                 });
-            }
-        });
+                printer.with_child(true, |printer| {
+                    printer.print_node("Blocks");
+                    printer.print_block(&function.body);
+                });
+            });
+        }
     }
 
     fn print_block(&mut self, block: &HirBlock) {
@@ -130,8 +149,12 @@ impl HirPrinter {
                 HirStatement::Expression(expr) => {
                     printer.print_expression(expr);
                 }
-                HirStatement::Variable { variable, initializer } => {
-                    printer.print_node(&format!("Variable {}: {}", variable.name, variable.ty));
+                HirStatement::Variable {
+                    variable,
+                    initializer,
+                } => {
+                    let name = printer.str_pool.get(variable.name);
+                    printer.print_node(&format!("Variable {}: {}", name, variable.ty));
                     if let Some(init) = initializer {
                         printer.with_child(true, |printer| {
                             printer.print_expression(init);
@@ -140,25 +163,23 @@ impl HirPrinter {
                 }
                 HirStatement::Assignment { target, op, value } => {
                     printer.print_node(&format!("Assigment {:?} ", op));
-                    printer.with_child(true, |printer| {
-                        match target {
-                            HirLValue::Variable { id, .. } => {
-                                printer.print_node(&format!("Var {}", id));
+                    printer.with_child(true, |printer| match target {
+                        HirLValue::Variable { id, .. } => {
+                            printer.print_node(&format!("Var {}", id));
+                            printer.with_child(true, |printer| {
+                                printer.print_expression(value);
+                            });
+                        }
+                        HirLValue::ArrayAccess { array, index, .. } => {
+                            printer.print_expression(&array);
+                            printer.with_child(true, |printer| {
+                                printer.print_expression(&index);
                                 printer.with_child(true, |printer| {
                                     printer.print_expression(value);
                                 });
-                            }
-                            HirLValue::ArrayAccess { array, index, .. } => {
-                                printer.print_expression(&array);
-                                printer.with_child(true, |printer| {
-                                    printer.print_expression(&index);
-                                    printer.with_child(true, |printer| {
-                                        printer.print_expression(value);
-                                    });
-                                });
-                            }
-                            _ => {}
+                            });
                         }
+                        _ => {}
                     });
                 }
                 HirStatement::Return { value } => {
@@ -199,13 +220,13 @@ impl HirPrinter {
                             }
                         });
                     }
-                },
+                }
                 // HirStatement::If(if_stmt) => printer.print_if_statement(if_stmt),
                 HirStatement::While { condition, body } => {
                     printer.print_node("While Statement");
                     printer.with_child(false, |printer| {
                         printer.print_node("Condition");
-                        printer.with_child(true, |printer|{
+                        printer.with_child(true, |printer| {
                             printer.print_expression(condition);
                         });
                     });
@@ -220,9 +241,6 @@ impl HirPrinter {
                 HirStatement::Break => {
                     printer.print_node("Break");
                 }
-                // _ => {
-                //     self.print_node("Unsupported Statement");
-                // }
             }
         });
     }
@@ -269,7 +287,12 @@ impl HirPrinter {
             HirExpression::Variable { id, ty, .. } => {
                 self.print_node(&format!("Variable {}: {}", id, ty));
             }
-            HirExpression::Ternary { condition, then_branch, else_branch, .. } => {
+            HirExpression::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 self.print_node("Ternary");
                 self.with_child(false, |printer| {
                     printer.print_expression(condition);
@@ -281,7 +304,9 @@ impl HirPrinter {
                     printer.print_expression(else_branch);
                 });
             }
-            HirExpression::Binary { left, op, right, .. } => {
+            HirExpression::Binary {
+                left, op, right, ..
+            } => {
                 self.print_node(&format!("Binary {:?}", op));
                 self.with_child(false, |printer| {
                     printer.print_expression(left);
@@ -314,7 +339,12 @@ impl HirPrinter {
                     });
                 });
             }
-            HirExpression::Call { callee, arguments, ty, .. } => {
+            HirExpression::Call {
+                callee,
+                arguments,
+                ty,
+                ..
+            } => {
                 self.print_node("Call");
 
                 self.with_child(false, |printer| {
@@ -353,13 +383,24 @@ impl HirPrinter {
                     }
                 });
             }
-            HirExpression::FieldAccess { object, field_name, field_id, ty, .. } => {
-                self.print_node(&format!("Field Access: {} ({}) -> {}", field_name, field_id, ty));
+            HirExpression::FieldAccess {
+                object,
+                field_name,
+                field_id,
+                ty,
+                ..
+            } => {
+                self.print_node(&format!(
+                    "Field Access: {} ({}) -> {}",
+                    field_name, field_id, ty
+                ));
                 self.with_child(true, |printer| {
                     printer.print_expression(object);
                 });
             }
-            HirExpression::MemberAccess { object, member, ty, .. } => {
+            HirExpression::MemberAccess {
+                object, member, ty, ..
+            } => {
                 self.print_node(&format!("Member Access: {} -> {}", member, ty));
                 self.with_child(true, |printer| {
                     printer.print_expression(object);
@@ -371,7 +412,9 @@ impl HirPrinter {
                     printer.print_expression(value);
                 });
             }
-            HirExpression::Cast { value, from, ty, .. } => {
+            HirExpression::Cast {
+                value, from, ty, ..
+            } => {
                 self.print_node(&format!("Cast: {} -> {}", from, ty));
                 self.with_child(true, |printer| {
                     printer.print_expression(value);
@@ -380,5 +423,4 @@ impl HirPrinter {
             _ => {}
         }
     }
-
 }

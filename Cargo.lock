@@ -115,6 +115,7 @@ dependencies = [
  "tahuc_hir",
  "tahuc_llvm",
  "tahuc_mir",
+ "tahuc_module",
  "tahuc_span",
 ]
 
@@ -170,6 +171,7 @@ version = "0.1.0"
 dependencies = [
  "tahuc_ast",
  "tahuc_hir",
+ "tahuc_module",
  "tahuc_span",
 ]
 

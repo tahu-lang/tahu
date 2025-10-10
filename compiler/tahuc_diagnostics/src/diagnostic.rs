@@ -30,6 +30,10 @@ impl Diagnostic {
         }
     }
 
+    pub fn fatal(message: impl Into<String>) -> Self {
+        Self::new(Severity::Fatal, message)
+    }
+
     pub fn error(message: impl Into<String>) -> Self {
         Self::new(Severity::Error, message)
     }

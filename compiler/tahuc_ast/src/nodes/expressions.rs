@@ -1,5 +1,7 @@
+use std::rc::Rc;
+
 use tahuc_lexer::token::Literal;
-use tahuc_span::Span;
+use tahuc_span::{Span, StrId};
 
 use crate::{nodes::{ast::AstNode, op::{BinaryOp, UnaryOp}}, Type};
 
@@ -12,7 +14,7 @@ pub enum ExpressionKind {
         parts: Vec<TemplatePart>
     },
 
-    Identifier(String),
+    Identifier(StrId),
 
     Ternary {
         condition: Box<Expression>,
@@ -43,12 +45,12 @@ pub enum ExpressionKind {
     },
     MemberAccess {
         object: Box<Expression>,
-        member: String,
+        member: StrId,
     },
     FunctionCall(Box<FunctionCall>),
     Grouping(Box<Expression>),
     Cast {
-        ty: Type,
+        ty: Rc<Type>,
         expression: Box<Expression>,
     },
 }

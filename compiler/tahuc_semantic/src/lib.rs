@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use tahuc_ast::Module;
 use tahuc_diagnostics::reporter::DiagnosticReporter;
-use tahuc_module::resolver::ModuleResult;
+use tahuc_module::{config::Config, resolver::ModuleResult};
 use tahuc_span::FileId;
 
 use crate::{
-    database::Database,
+    database::database::Database,
     resolver::{
-        collector::Collector, control_flow::ControlFlowAnalyzer, symbol_resolver::SymbolResolution,
+        collector::collector::Collector, control_flow::ControlFlowAnalyzer, symbol_resolver::SymbolResolution,
         type_resolver::TypeAnalyzer,
     },
 };
@@ -16,11 +16,9 @@ use crate::{
 pub mod database;
 mod error;
 mod resolver;
-mod scope;
-pub mod symbol;
-mod type_manager;
 
 pub struct Analyzer<'a> {
+    // config: &'a Config<'a>,
     database: Database,
     reporter: &'a mut DiagnosticReporter,
 }
@@ -33,22 +31,26 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub fn analyze_depedencies(&mut self, modules: &HashMap<FileId, ModuleResult>) -> Database {
-        // phase 1 collect all ymbols, type
-        for (file_id, _) in modules {
+    pub fn analyze_depedencies(&mut self, config: &mut Config, modules: &HashMap<FileId, ModuleResult>) -> Database {
+        // phase 1 collect all symbols, type
+        for (file_id, module) in modules {
             self.database.add_file(*file_id);
+            self.database.add_import_name(module.name.clone(), *file_id);
+            let size = module.module.declaration.len();
+            self.database.allocate_size(*file_id, size);
         }
-        self.collector(modules);
+
+        self.collector(config, modules);
 
         // phase 2 resolve symbol reference
-        self.resolve_reference(&modules);
+        self.resolve_reference(config, &modules);
 
         for (_, res) in modules {
             // phase 3 type checking
-            self.type_checking(&res.module);
+            self.type_checking(config, &res.module);
 
             // phase 4 control flow analyze
-            self.control_flow_analyze(&res.module);
+            self.control_flow_analyze(config, &res.module);
         }
 
         // collect error and report
@@ -57,24 +59,46 @@ impl<'a> Analyzer<'a> {
         self.database.clone()
     }
 
-    fn collector(&mut self, modules: &HashMap<FileId, ModuleResult>) {
-        let mut collector = Collector::new(&mut self.database);
-        collector.analyze_module(modules);
+    fn collector(&mut self, config: &mut Config, modules: &HashMap<FileId, ModuleResult>) {
+        let start_time = std::time::Instant::now();
+        let mut collector = Collector::new(config.str_pool,&mut self.database);
+        collector.analyze_module(config, modules);
+        config.timings.entry(tahuc_module::config::Timings::SemanticCollector)
+            .and_modify(|e| *e += start_time.elapsed())
+            .or_insert(start_time.elapsed());
     }
 
-    fn resolve_reference(&mut self, module: &HashMap<FileId, ModuleResult>) {
-        let mut resolver = SymbolResolution::new(&mut self.database);
+    fn resolve_reference(&mut self, config: &mut Config, module: &HashMap<FileId, ModuleResult>) {
+        let start_time = std::time::Instant::now();
+
+        let mut resolver = SymbolResolution::new(config, &mut self.database);
         resolver.analyze_module(module);
+
+        config.timings.entry(tahuc_module::config::Timings::SemanticSymbolResolver)
+            .and_modify(|e| *e += start_time.elapsed())
+            .or_insert(start_time.elapsed());
     }
 
-    fn type_checking(&mut self, module: &Module) {
-        let mut resolver = TypeAnalyzer::new(&mut self.database);
+    fn type_checking(&mut self, config: &mut Config, module: &Module) {
+        let start_time = std::time::Instant::now();
+
+        let mut resolver = TypeAnalyzer::new(config, &mut self.database);
         resolver.analyze_module(module);
+
+        config.timings.entry(tahuc_module::config::Timings::SemanticTypeResolver)
+            .and_modify(|e| *e += start_time.elapsed())
+            .or_insert(start_time.elapsed());
     }
 
-    fn control_flow_analyze(&mut self, module: &Module) {
-        let mut analyzer = ControlFlowAnalyzer::new(&mut self.database);
+    fn control_flow_analyze(&mut self, config: &mut Config, module: &Module) {
+        let start_time = std::time::Instant::now();
+
+        let mut analyzer = ControlFlowAnalyzer::new(config, &mut self.database);
         analyzer.analyze_module(module);
+
+        config.timings.entry(tahuc_module::config::Timings::SemanticControlFlow)
+            .and_modify(|e| *e += start_time.elapsed())
+            .or_insert(start_time.elapsed());
     }
 
     fn compile_error(&mut self) {

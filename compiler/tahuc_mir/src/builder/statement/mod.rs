@@ -1,33 +1,38 @@
 use tahuc_hir::hir::{HirElseBranch, HirStatement};
+use tahuc_module::config::Config;
 
-use crate::{builder::builder::{Builder, Termination}, mir::{ty::ToMirType, BasicBlockId}};
+use crate::{
+    builder::builder::{Builder, Termination},
+    mir::BasicBlockId,
+};
 
 pub(crate) mod assignment;
 pub(crate) mod variable;
 
 impl Builder {
-    pub(crate) fn build_statement(&mut self, statement: &HirStatement) -> Termination {
+    pub(crate) fn build_statement(&mut self, config: &mut Config, statement: &HirStatement) -> Termination {
         match statement {
             HirStatement::Expression(expr) => {
-                self.build_expression(expr, false);
+                self.build_expression(config,expr, false);
                 Termination::Fallthrough
             }
             HirStatement::Variable {
                 variable,
                 initializer,
             } => {
-                self.build_variable_statement(variable, initializer);
+                self.build_variable_statement(config, variable, initializer);
                 Termination::Fallthrough
             }
             HirStatement::Assignment { target, op, value } => {
-                self.build_assigment_stmt(target, op.clone(), value);
+                self.build_assigment_stmt(config, target, op.clone(), value);
 
                 Termination::Fallthrough
             }
             HirStatement::Return { value } => {
                 let value = if let Some(value) = value {
-                    let need_addr = value.get_type().to_mir_ty().is_aggregate();
-                    let value = self.build_expression(value, need_addr);
+                    let ty = self.ty_to_mir(config, &value.get_type());
+                    let need_addr = ty.is_aggregate();
+                    let value = self.build_expression(config, value, need_addr);
                     Some(value)
                 } else {
                     None
@@ -37,7 +42,7 @@ impl Builder {
                 Termination::Terminated
             }
             HirStatement::If(if_stmt) => {
-                let condition = self.build_expression(&if_stmt.condition, false);
+                let condition = self.build_expression(config, &if_stmt.condition, false);
                 let then_block = self.new_block("if_then");
                 let else_block = if let Some(_) = &if_stmt.else_branch {
                     Some(self.new_block("if_else"))
@@ -52,14 +57,14 @@ impl Builder {
                 // set condition terminator
                 self.emit_branch(condition, then_block, false_target);
                 self.switch_to_block(then_block);
-                let termination = self.build_block(&if_stmt.then_branch);
+                let termination = self.build_block(config, &if_stmt.then_branch);
                 if !termination.is_terminated() {
                     self.emit_jump(merge_block);
                 }
 
                 if let Some(else_branch) = &if_stmt.else_branch {
                     self.switch_to_block(else_block.unwrap());
-                    self.build_if_statement(else_branch, merge_block);
+                    self.build_if_statement(config, else_branch, merge_block);
                 } else {
                     self.switch_to_block(merge_block);
                 }
@@ -76,11 +81,11 @@ impl Builder {
                 self.new_loop(loop_exit, loop_header);
                 self.emit_jump(loop_header);
                 self.switch_to_block(loop_header);
-                let condition = self.build_expression(condition, false);
+                let condition = self.build_expression(config, condition, false);
                 self.emit_branch(condition, loop_body, loop_exit);
 
                 self.switch_to_block(loop_body);
-                let termination = self.build_block(body);
+                let termination = self.build_block(config, body);
                 if !termination.is_terminated() {
                     self.emit_jump(loop_header);
                 }
@@ -101,10 +106,10 @@ impl Builder {
         }
     }
 
-    fn build_if_statement(&mut self, else_branch: &HirElseBranch, merge_block: BasicBlockId) {
+    fn build_if_statement(&mut self, config: &mut Config, else_branch: &HirElseBranch, merge_block: BasicBlockId) {
         match else_branch {
             HirElseBranch::If(if_stmt) => {
-                let condition = self.build_expression(&if_stmt.condition, false);
+                let condition = self.build_expression(config, &if_stmt.condition, false);
                 let then_block = self.new_block("if_then");
                 let else_block = if let Some(_) = if_stmt.else_branch {
                     Some(self.new_block("if_else"))
@@ -115,20 +120,20 @@ impl Builder {
 
                 self.emit_branch(condition, then_block, false_target);
                 self.switch_to_block(then_block);
-                let termination = self.build_block(&if_stmt.then_branch);
+                let termination = self.build_block(config, &if_stmt.then_branch);
                 if !termination.is_terminated() {
                     self.emit_jump(merge_block);
                 }
 
                 if let Some(else_branch) = &if_stmt.else_branch {
                     self.switch_to_block(else_block.unwrap());
-                    self.build_if_statement(&else_branch, merge_block);
+                    self.build_if_statement(config, &else_branch, merge_block);
                 }
             }
             HirElseBranch::Block(block) => {
-                let termination = self.build_block(block);
+                let termination = self.build_block(config, block);
                 if !termination.is_terminated() {
-                    self.emit_jump(merge_block);   
+                    self.emit_jump(merge_block);
                 }
             }
         }

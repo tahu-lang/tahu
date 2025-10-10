@@ -1,5 +1,7 @@
+use std::rc::Rc;
+
 use tahuc_lexer::token::Literal;
-use tahuc_span::{FileId, Span};
+use tahuc_span::{FileId, Span, StrId};
 
 use crate::{
     nodes::{
@@ -72,7 +74,7 @@ impl AstBuilder {
         span: Span,
         file_id: FileId,
         visibility: Visibility,
-        name: String,
+        name: StrId,
         fields: Vec<AstNode<StructField>>,
         ty: Type,
     ) -> Declaration {
@@ -84,7 +86,7 @@ impl AstBuilder {
                 visibility,
                 name: name,
                 fields: fields,
-                ty,
+                ty: Rc::new(ty),
                 span: span,
             }),
         )
@@ -94,7 +96,7 @@ impl AstBuilder {
         &mut self,
         span: Span,
         file_id: FileId,
-        name: String,
+        name: StrId,
         r#type: Type,
     ) -> AstNode<StructField> {
         AstNode::new(
@@ -103,7 +105,7 @@ impl AstBuilder {
             file_id,
             StructField {
                 name: name,
-                r#type: r#type,
+                r#type: Rc::new(r#type),
                 span: span,
             },
         )
@@ -150,7 +152,7 @@ impl AstBuilder {
         &mut self,
         span: Span,
         file_id: FileId,
-        name: String,
+        name: StrId,
         params: Vec<AstNode<ParameterKind>>,
         return_type: Type,
     ) -> Declaration {
@@ -161,7 +163,7 @@ impl AstBuilder {
             DeclarationKind::Extern(ExternFn {
                 name: name,
                 parameters: params,
-                return_type: return_type,
+                return_type: Rc::new(return_type),
                 span: span,
             }),
         )
@@ -273,13 +275,13 @@ impl AstBuilder {
             span,
             file_id,
             ExpressionKind::Cast {
-                ty: ty,
+                ty: Rc::new(ty),
                 expression: Box::new(expression),
             },
         )
     }
 
-    pub fn identifier(&mut self, span: Span, file_id: FileId, name: String) -> Expression {
+    pub fn identifier(&mut self, span: Span, file_id: FileId, name: StrId) -> Expression {
         AstNode::new(
             self.next_id(),
             span,
@@ -369,7 +371,7 @@ impl AstBuilder {
         span: Span,
         file_id: FileId,
         object: Expression,
-        member: String,
+        member: StrId,
     ) -> Expression {
         AstNode::new(
             self.next_id(),

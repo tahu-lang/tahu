@@ -1,25 +1,25 @@
 use tahuc_ast::ty::Type;
 use tahuc_hir::hir::HirExpression;
+use tahuc_module::config::Config;
 
 use crate::{
     builder::builder::Builder,
-    mir::{
-        instruction::MirOperand,
-        ty::{MirType, ToMirType},
-    },
+    mir::{instruction::MirOperand, ty::MirType},
 };
 
 impl Builder {
     pub(crate) fn build_array_literal(
         &mut self,
+        config: &mut Config,
         elements: &Vec<HirExpression>,
         ty: &Type,
     ) -> MirOperand {
         let element_ty = match ty {
             Type::Array { ty, .. } => ty.as_ref().clone(),
             _ => panic!("ArrayLiteral must have Array type"),
-        }
-        .to_mir_ty();
+        };
+
+        let element_ty = self.ty_to_mir(config, &element_ty);
 
         // allocate array
         let arr_ty = MirType::Array {
@@ -44,10 +44,12 @@ impl Builder {
                 element_ty.clone(),
             );
 
-            if e_expr.get_type().to_mir_ty().is_aggregate() {
-                self.build_expression(e_expr, false);
+            let expr_ty = self.ty_to_mir(config, &e_expr.get_type());
+
+            if expr_ty.is_aggregate() {
+                self.build_expression(config, e_expr, false);
             } else {
-                let element_value = self.build_expression(e_expr, false);
+                let element_value = self.build_expression(config, e_expr, false);
                 self.store(
                     MirOperand::Local(element_ptr_id),
                     element_value,
@@ -61,14 +63,15 @@ impl Builder {
 
     pub(crate) fn array_access(
         &mut self,
+        config: &mut Config,
         array: &HirExpression,
         index: &HirExpression,
         base_ty: MirType,
         inner: MirType,
         need_addr: bool,
     ) -> MirOperand {
-        let addr = self.build_expression(&array, true);
-        let idx = self.build_expression(&index, false);
+        let addr = self.build_expression(config, &array, true);
+        let idx = self.build_expression(config, &index, false);
 
         let temp_ptr = self.new_local(inner.clone());
 
@@ -76,8 +79,9 @@ impl Builder {
 
         let is_parameter = addr.is_parameter(self.current_function.as_ref().unwrap());
 
+        let arr_ty = self.ty_to_mir(config, &array.get_type());
         if !is_parameter {
-            if !array.get_type().to_mir_ty().is_string() {
+            if !arr_ty.is_string() {
                 indices.push(MirOperand::new_constant_int(0));
             }
         }

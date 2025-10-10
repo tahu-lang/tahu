@@ -1,5 +1,7 @@
+use std::{ops::Deref, rc::Rc};
+
 use tahuc_ast::{nodes::op::{AssignmentOp, BinaryOp, UnaryOp}, ty::{PrimitiveType, Type}};
-use tahuc_span::{FileId, Span};
+use tahuc_span::{FileId, Span, StrId};
 
 pub type StructId = u32;
 pub type FunctionId = u32;
@@ -16,30 +18,30 @@ pub struct HirModule {
 #[derive(Debug, Clone)]
 pub struct HirStruct {
     pub id: StructId,
-    pub name: String,
+    pub name: StrId,
     pub fields: Vec<HirField>,
     pub visibility: HirVisibility,
-    pub ty: Type,
+    pub ty: Rc<Type>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HirField {
     pub id: VariableId,
-    pub name: String,
-    pub ty: Type,
+    pub name: StrId,
+    pub ty: Rc<Type>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HirFunction {
     pub id: FunctionId,
-    pub name: String,
+    pub name: StrId,
     pub parameters: Vec<HirParameters>,
-    pub return_type: Type,
+    pub return_type: Rc<Type>,
     pub visibility: HirVisibility,
     pub body: HirBlock,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum HirVisibility {
     Public,
     Private,
@@ -48,23 +50,23 @@ pub enum HirVisibility {
 #[derive(Debug, Clone)]
 pub struct HirExternFunction {
     pub id: FunctionId,
-    pub name: String,
+    pub name: StrId,
     pub parameters: Vec<HirParameters>,
-    pub return_type: Type,
+    pub return_type: Rc<Type>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HirParameters {
     pub id: VariableId,
-    pub name: String,
-    pub ty: Type,
+    pub name: StrId,
+    pub ty: Rc<Type>,
 }
 
 #[derive(Debug, Clone)]
 pub struct HirVariable {
     pub id: VariableId,
-    pub name: String,
-    pub ty: Type,
+    pub name: StrId,
+    pub ty: Rc<Type>,
     pub span: Span,
 }
 
@@ -112,19 +114,19 @@ pub enum HirElseBranch {
 
 #[derive(Debug, Clone)]
 pub struct FunctionSignature {
-    pub args: Vec<Type>,
+    pub args: Vec<Rc<Type>>,
 }
 
 #[derive(Debug, Clone)]
 pub enum HirExpression {
     Literal {
         value: HirLiteral,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     Variable {
         id: VariableId,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     Ternary {
@@ -137,75 +139,75 @@ pub enum HirExpression {
         left: Box<HirExpression>,
         op: BinaryOp,
         right: Box<HirExpression>,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     Unary {
         op: UnaryOp,
         operand: Box<HirExpression>,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     ArrayLiteral {
         elements: Vec<HirExpression>,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     ArrayAccess {
         array: Box<HirExpression>,
         index: Box<HirExpression>,
-        arr_ty: Type,
-        ty: Type,
+        arr_ty: Rc<Type>,
+        ty: Rc<Type>,
         span: Span,
     },
     StructLiteral {
         object: Box<HirExpression>,
         fields: Vec<(usize, HirExpression)>,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     StructType {
         id: StructId,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     FieldAccess {
         object: Box<HirExpression>,
-        field_name: String,
+        field_name: StrId,
         field_id: u32,
-        base_ty: Type,
-        ty: Type,
+        base_ty: Rc<Type>,
+        ty: Rc<Type>,
         span: Span,
     },
     MemberAccess {
         object: Box<HirExpression>,
-        member: String,
-        ty: Type,
+        member: StrId,
+        ty: Rc<Type>,
         span: Span,
     },
     Call {
         callee: FunctionId,
         arguments: Vec<HirExpression>,
         signature: FunctionSignature,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     MethodCall {
         object: Box<HirExpression>,
         // method: 
         arguments: Vec<HirExpression>,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     Grouping {
         value: Box<HirExpression>,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     Cast {
         value: Box<HirExpression>,
-        from: Type,
-        ty: Type,
+        from: Rc<Type>,
+        ty: Rc<Type>,
         span: Span,
     },
 }
@@ -218,7 +220,7 @@ impl HirExpression {
         }
     }
 
-    pub fn get_type(&self) -> Type {
+    pub fn get_type(&self) -> Rc<Type> {
         match self {
             HirExpression::Literal { ty, .. } => ty.clone(),
             HirExpression::Variable { ty, .. } => ty.clone(),
@@ -238,11 +240,31 @@ impl HirExpression {
         }
     }
 
-    pub fn to_l_value(&self) -> Option<HirLValue> {
+    pub fn get_type_ref(&self) -> &Type {
+        match self {
+            HirExpression::Literal { ty, .. } => ty,
+            HirExpression::Variable { ty, .. } => ty,
+            HirExpression::Ternary { then_branch, .. } => then_branch.get_type_ref(),
+            HirExpression::Binary { ty, .. } => ty,
+            HirExpression::Unary { ty, .. } => ty,
+            HirExpression::ArrayLiteral { ty, .. } => ty,
+            HirExpression::ArrayAccess { ty, .. } => ty,
+            HirExpression::StructType { ty, .. } => ty,
+            HirExpression::StructLiteral { ty, .. } => ty,
+            HirExpression::FieldAccess { ty, .. } => ty,
+            HirExpression::MemberAccess { ty, .. } => ty,
+            HirExpression::MethodCall { ty, .. } => ty,
+            HirExpression::Call { ty, .. } => ty,
+            HirExpression::Cast { ty, .. } => ty,
+            HirExpression::Grouping { ty, .. } => ty,
+        }
+    }
+
+    pub fn to_l_value(self) -> Option<HirLValue> {
         match self {
             HirExpression::Variable { id, ty, span } => {
                 Some(HirLValue::Variable {
-                    id: *id,
+                    id: id,
                     ty: ty.clone(),
                     span: span.clone(),
                 })
@@ -259,8 +281,8 @@ impl HirExpression {
             HirExpression::FieldAccess { object, field_name, field_id, base_ty, ty, span } => {
                 Some(HirLValue::FieldAccess {
                     object: object.clone(),
-                    field_name: field_name.clone(),
-                    field_id: *field_id,
+                    field_name: field_name,
+                    field_id: field_id,
                     base_ty: base_ty.clone(),
                     ty: ty.clone(),
                     span: span.clone(),
@@ -276,27 +298,27 @@ impl HirExpression {
 pub enum HirLValue {
     Variable {
         id: VariableId,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     ArrayAccess {
         array: Box<HirExpression>,
         index: Box<HirExpression>,
-        arr_ty: Type,
-        ty: Type,
+        arr_ty: Rc<Type>,
+        ty: Rc<Type>,
         span: Span,
     },
     Deref {
         value: HirExpression,
-        ty: Type,
+        ty: Rc<Type>,
         span: Span,
     },
     FieldAccess {
         object: Box<HirExpression>,
-        field_name: String,
+        field_name: StrId,
         field_id: u32,
-        base_ty: Type,
-        ty: Type,
+        base_ty: Rc<Type>,
+        ty: Rc<Type>,
         span: Span,
     },
 }
@@ -308,7 +330,7 @@ pub enum HirLiteral {
     Integer(i64),
     Float(f64),
     Bool(bool),
-    Null(Type),
+    Null(Rc<Type>),
 }
 
 impl HirLiteral {
@@ -319,7 +341,7 @@ impl HirLiteral {
             HirLiteral::Integer(_) => Type::Int,
             HirLiteral::Float(_) => Type::Double,
             HirLiteral::Bool(_) => Type::Primitive(PrimitiveType::Bool),
-            HirLiteral::Null(ty) => ty.clone(),
+            HirLiteral::Null(ty) => ty.deref().clone(),
         }
     }
 }

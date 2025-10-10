@@ -88,6 +88,7 @@ impl CString {
         Self { ptr: ptr.into_raw() }
     }
 
+    #[allow(dead_code)]
     pub fn from_raw(ptr: *mut i8) -> String {
         let str = unsafe { std::ffi::CString::from_raw(ptr) };
         str.to_string_lossy().into_owned()
@@ -97,6 +98,7 @@ impl CString {
         self.ptr
     }
 
+    #[allow(dead_code)]
     pub fn to_string(&self) -> String {
         let str = unsafe { std::ffi::CStr::from_ptr(self.ptr) };
         str.to_string_lossy().into_owned()
@@ -109,12 +111,14 @@ pub struct TargetTriple {
 }
 
 impl TargetTriple {
+    #[allow(dead_code)]
     pub fn new(triple: &str) -> Self {
         Self {
             triple: CString::new(triple),
         }
     }
 
+    #[allow(dead_code)]
     pub fn create(triple: &str) -> Self {
         Self {
             triple: CString::new(triple),
@@ -142,14 +146,20 @@ impl Target {
         Self { target }
     }
 
-    pub fn from_triple(triple: TargetTriple) -> Self {
+    pub fn from_triple(triple: TargetTriple) -> Result<Self, String> {
         let mut target = std::ptr::null_mut();
         let mut err_string = MaybeUninit::uninit();
 
-        unsafe {
+        let status = unsafe {
             LLVMGetTargetFromTriple(triple.triple.as_ptr(), &mut target, err_string.as_mut_ptr())
         };
-        Target::new(target)
+
+        if status != 0 {
+            let err_msg = unsafe { std::ffi::CStr::from_ptr(err_string.assume_init()) };
+            Err(err_msg.to_string_lossy().into_owned())
+        } else {
+            Ok(Self::new(target))
+        }
     }
 
     pub fn init_x86() {

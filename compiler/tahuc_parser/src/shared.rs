@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use tahuc_ast::{
     nodes::{
         declarations::{Function, Visibility},
@@ -13,7 +15,7 @@ impl<'a> Parser<'a> {
         &mut self,
         visibility: Visibility,
     ) -> Result<Function, ParserError> {
-        let start_token = self.peek().clone();
+        let start_span = self.current_token().span;
         self.consume(TokenKind::Fn, "expected 'fn' keyword")?;
         let result_name = self
             .consume(TokenKind::Identifier, "expected function name").cloned();
@@ -51,11 +53,11 @@ impl<'a> Parser<'a> {
         // for now simple parse block for function
         let body = self.parse_block()?;
 
-        let end_token = self.previous().clone();
-        let span = self.make_span(start_token, end_token);
+        let end_span = self.get_last_span();
+        let span = self.make_span_fspan(start_span, end_span);
         let function = self
             .builder
-            .build_function(span, self.file_id, visibility, name, parameters, ret_type, body);
+            .build_function(span, self.file_id, visibility, Vec::new(), name, parameters, ret_type, body);
         Ok(function)
     }
 
@@ -63,13 +65,13 @@ impl<'a> Parser<'a> {
         &mut self,
         visibility: Visibility,
     ) -> Result<Variable, ParserError> {
-        let start_token = self.peek().clone();
+        let start_span = self.current_token().span;
         let is_mutable = self.check(TokenKind::Var);
-        let variable = self.advance();
-        let msg = format!("Expected variable name after '{}'", variable.lexeme.clone());
-        let result_name = self.consume(TokenKind::Identifier, &msg).cloned();
-        // ?.lexeme.clone();
-        let name = self.get_or_default(result_name, Token::dummy()).lexeme.clone();
+        self.advance();
+        let result_name = self.consume_owned(TokenKind::Identifier, "variable name");
+
+        let default = self.get_or_default(result_name, self.dummy_token());
+        let name = self.get_token(default).lexeme;
 
 
         // get colon and check the type of variable
@@ -83,7 +85,7 @@ impl<'a> Parser<'a> {
             // `string?`, `int?`
             if self.check(TokenKind::Question) {
                 self.advance();
-                Type::Nullable(Box::new(ty))
+                Type::Nullable(Rc::new(ty))
             } else {
                 ty
             }
@@ -103,13 +105,13 @@ impl<'a> Parser<'a> {
         self.report_error(res);
         
 
-        let end_token = self.peek().clone();
-        let span = self.make_span(start_token, end_token);
+        let end_span = self.get_last_span();
+        let span = self.make_span_fspan(start_span, end_span);
 
         let variable = Variable {
             visibility,
             name,
-            variable_type: type_annotation,
+            variable_type: Rc::new(type_annotation),
             initializer,
             is_mutable,
             span,
