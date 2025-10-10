@@ -1,28 +1,31 @@
 use tahuc_ast::nodes::op::{BinaryOp, UnaryOp};
 use tahuc_hir::hir::FunctionId;
+use tahuc_span::StrPool;
 
 use crate::mir::{block::{MirBasicBlock, MirTerminator}, function::{MirExternFunction, MirFunction}, instruction::{MirInstruction, MirOperand}, ty::{MirConstant, MirType}, *};
 
 pub struct MirPrinter<'a> {
+    str_pool: &'a StrPool,
     module: &'a MirModule,
     current_function: Option<&'a MirFunction>,
 }
 
-pub fn print_mir(module: &MirModule) {
-    let printer = MirPrinter::new(module);
+pub fn print_mir(str_pool: &StrPool, module: &MirModule) {
+    let printer = MirPrinter::new(str_pool, module);
     println!("MIR printer");
     println!("{}", printer.print_module());
     println!("==================");
 }
 
-pub fn mir_to_string(module: &MirModule) -> String {
-    let printer = MirPrinter::new(module);
+pub fn mir_to_string(str_pool: &StrPool, module: &MirModule) -> String {
+    let printer = MirPrinter::new(str_pool,module);
     printer.print_module()
 }
 
 impl<'a> MirPrinter<'a> {
-    pub fn new(module: &'a MirModule) -> Self {
+    pub fn new(str_pool: &'a StrPool, module: &'a MirModule) -> Self {
         Self {
+            str_pool,
             module,
             current_function: None,
         }
@@ -96,6 +99,7 @@ impl<'a> MirPrinter<'a> {
 
         // Set current function for value printing
         let printer = MirPrinter {
+            str_pool: self.str_pool,
             module: self.module,
             current_function: Some(function),
         };
@@ -332,13 +336,15 @@ impl<'a> MirPrinter<'a> {
         self.current_function.and_then(|func| func.locals.get(&local_id))
     }
 
-    fn get_function_name(&self, function_id: FunctionId) -> String {
+    fn get_function_name(&self, function_id: FunctionId) -> &str {
         if let Some(func) = self.module.functions.iter().find(|f| f.id == function_id) {
-            func.name.clone()
+            let name = self.str_pool.get(func.name);
+            name
         } else if let Some(ext_func) = self.module.extern_functions.iter().find(|f| f.id == function_id) {
-            ext_func.name.clone()
+            let name = self.str_pool.get(ext_func.name);
+            name
         } else {
-            format!("unknown_function_{}", function_id)
+            "unknown_function"
         }
     }
 

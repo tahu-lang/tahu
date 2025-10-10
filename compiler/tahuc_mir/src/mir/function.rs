@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use tahuc_hir::hir::{FunctionId, HirVisibility};
+use tahuc_span::StrId;
 
 use crate::mir::{
     BasicBlockId, LocalId,
@@ -11,7 +12,7 @@ use crate::mir::{
 #[derive(Debug, Clone)]
 pub struct MirFunction {
     pub id: FunctionId,
-    pub name: String,
+    pub name: StrId,
     pub parameters: Vec<MirParameter>,
     pub return_type: MirType,
     pub visibility: HirVisibility,
@@ -29,7 +30,7 @@ pub struct MirFunction {
 #[derive(Debug, Clone)]
 pub struct MirExternFunction {
     pub id: FunctionId,
-    pub name: String,
+    pub name: StrId,
     pub parameters: Vec<MirType>,
     pub return_type: MirType,
 }
@@ -37,14 +38,14 @@ pub struct MirExternFunction {
 #[derive(Debug, Clone)]
 pub struct MirParameter {
     pub id: LocalId,
-    pub name: String,
+    pub name: StrId,
     pub ty: MirType,
 }
 
 impl MirFunction {
     pub fn new(
         id: FunctionId,
-        name: String,
+        name: StrId,
         return_type: MirType,
         vibility: HirVisibility,
     ) -> Self {
@@ -93,7 +94,7 @@ impl MirFunction {
         self.block_order = postorder;
     }
 
-    pub fn add_parameter(&mut self, ty: MirType, name: String) -> LocalId {
+    pub fn add_parameter(&mut self, ty: MirType, name: StrId) -> LocalId {
         let id = self.next_local_id;
         self.next_local_id += 1;
 

@@ -85,6 +85,7 @@ impl Builder {
         });
     }
 
+    #[allow(dead_code)]
     pub(crate) fn phi(
         &mut self,
         target: LocalId,

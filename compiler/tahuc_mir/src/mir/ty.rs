@@ -1,6 +1,7 @@
 use std::fmt::Display;
 
 use tahuc_ast::ty::*;
+use tahuc_span::{StrId, StrPool};
 
 #[derive(Debug, Clone)]
 pub enum MirConstant {
@@ -60,8 +61,8 @@ pub enum MirType {
         size: usize,
     },
     Struct {
-        name: String,
-        fields: Vec<(String, MirType)>,
+        name: StrId,
+        fields: Vec<(StrId, MirType)>,
     },
     // Named(String),
 }
@@ -178,7 +179,31 @@ impl MirType {
         }
     }
 
+    pub fn is_integer_ref(&self) -> bool {
+        match self {
+            MirType::I8 
+            | MirType::I16
+            | MirType::I32 
+            | MirType::I64
+            | MirType::Isize
+            | MirType::U8
+            | MirType::U16
+            | MirType::U32
+            | MirType::U64
+            | MirType::Usize => true,
+            _ => false,
+        }
+    }
+
     pub fn is_float(self) -> bool {
+        match self {
+            MirType::F32 
+            | MirType::F64 => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_float_ref(&self) -> bool {
         match self {
             MirType::F32 
             | MirType::F64 => true,
@@ -188,11 +213,11 @@ impl MirType {
 }
 
 pub trait ToMirType {
-    fn to_mir_ty(&self) -> MirType;
+    fn to_mir_ty(&self, pool: &StrPool) -> MirType;
 }
 
 impl ToMirType for Type {
-    fn to_mir_ty(&self) -> MirType {
+    fn to_mir_ty(&self, pool: &StrPool) -> MirType {
         match self {
             Type::Primitive(PrimitiveType::I8) => MirType::I8,
             Type::Primitive(PrimitiveType::I16) => MirType::I16,
@@ -213,25 +238,33 @@ impl ToMirType for Type {
             Type::String => MirType::String,
             Type::Int => MirType::I32,
             Type::Double => MirType::F64,
-            Type::Array { ty, size } => MirType::Array { ty: Box::new(ty.to_mir_ty()), size: *size },
+            Type::Array { ty, size } => MirType::Array { ty: Box::new(ty.to_mir_ty(pool)), size: *size },
             Type::Struct { name, fields } => {
                 MirType::Struct {
                     name: name.clone(),
-                    fields: fields.iter().map(|(name, ty)| (name.clone(), ty.to_mir_ty())).collect(),
+                    fields: fields.iter().map(|(name, ty)| (name.clone(), ty.to_mir_ty(pool))).collect(),
                 }
             }
             Type::Nullable(ty) => {
+                let name = format!("{}?", ty);
+                let name = pool.get_builtin(&name);
+                let name_is_null = pool.get_builtin("is_null");
+                let name_value = pool.get_builtin("value");
                 MirType::Struct {
-                    name: format!("{}?", ty),
+                    name: name,
                     fields: vec![
-                        (format!("is_null"), MirType::Bool),
-                        (format!("value"), ty.to_mir_ty()),
+                        (name_is_null, MirType::Bool),
+                        (name_value, ty.to_mir_ty(pool)),
                     ]
                 }
             },
-            Type::Pointer(ty) => MirType::Pointer(Box::new(ty.to_mir_ty())),
+            Type::Pointer(ty) => MirType::Pointer(Box::new(ty.to_mir_ty(pool))),
             // Type::Named(s) => MirType::Named(s.clone()),
             Type::Null => MirType::Null,
+            Type::Named(name) => {
+                let name = pool.get(*name);
+                panic!("Unsupported type: {:?}", name);
+            }
             _ => {
                 panic!("Unsupported type: {:?}", self);
             }
