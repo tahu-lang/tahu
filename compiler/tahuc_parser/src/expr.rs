@@ -176,7 +176,7 @@ impl<'a> Parser<'a> {
                         let span = self.make_span(prev, token.clone());
                         self.synchronize();
                         return Err(ParserError::Unexpected {
-                            unexcepted: format!("'{}' - expected identifier", token.lexeme),
+                            unexcepted: token.lexeme,
                             span: span,
                         });
                     }
@@ -238,7 +238,7 @@ impl<'a> Parser<'a> {
         
         while !self.is_at_end() && !self.check(TokenKind::RightBrace) {
             // Parse field name
-            let start_span = self.current_token().span.clone();
+            let start_span = self.current_token().span;
             let field_name_token = self.current_token().clone();
             let ident = self.consume(TokenKind::Identifier, "Expected field name").cloned();
             self.report_error(ident);
@@ -271,9 +271,11 @@ impl<'a> Parser<'a> {
                     break;
                 }
             } else if !self.check(TokenKind::RightBrace) {
+                let found = self.source.span_content(self.current_token().span).unwrap_or("");
+                let expected = format!("`,` or `}}`");
                 return Err(ParserError::Expected {
-                    expected: "expected ',' or '}'".to_string(),
-                    found: self.current_token().lexeme.clone(),
+                    expected,
+                    found: found.to_string(),
                     span: self.current_token().span,
                 });
             }
@@ -341,7 +343,7 @@ impl<'a> Parser<'a> {
                     match part {
                         tahuc_lexer::token::TemplatePart::EscapedBrace(c) => template.push(TemplatePart::Text(c.to_string())),
                         tahuc_lexer::token::TemplatePart::Expression { tokens, .. } => {
-                            let result = Parser::parse_expression(self.file_id, tokens, self.reporter);
+                            let result = Parser::parse_expression(self.source, self.str_pool, tokens, self.reporter);
                             match result {
                                 Ok(expr) => {
                                     template.push(TemplatePart::Expression(expr));
@@ -393,7 +395,7 @@ impl<'a> Parser<'a> {
                 let token = self.current_token().clone();
                 self.synchronize();
                 Err(ParserError::Unexpected {
-                    unexcepted: "')' - missing expression".to_string(),
+                    unexcepted: self.str_pool.pool("`)` - missing expression"),
                     span: token.span,
                 })
             }
@@ -401,14 +403,14 @@ impl<'a> Parser<'a> {
                 let token = self.current_token().clone();
                 self.synchronize();
                 Err(ParserError::Unexpected {
-                    unexcepted: "end of file - missing expression".to_string(),
+                    unexcepted: self.str_pool.pool("end of file"),
                     span: token.span,
                 })
             }
             _ => {
                 let token = self.current_token().clone();
                 Err(ParserError::Unexpected {
-                    unexcepted: format!("token '{}' - expected expression", token.lexeme),
+                    unexcepted: token.lexeme,
                     span: token.span,
                 })
             }
